@@ -26,6 +26,7 @@
 #include <rex/graphics/video_mode_util.h>
 #include <rex/hook.h>
 #include <rex/memory/utils.h>
+#include <rex/ui/temporal_jitter.h>
 
 REXCVAR_DECLARE(std::string, resolution);
 
@@ -106,6 +107,24 @@ REX_HOOK_RAW(BuildPerspectiveProjectionMatrix) {
         }
       }
     }
+  }
+
+  // Temporal upscaling: render this frame with the sub-pixel offset the upscaler will be told about.
+  // Clip space moves by (2 jx / w, -2 jy / h), and moving the frustum window moves the image the
+  // other way. ponytail: every perspective build in the frame gets the same offset, off-screen
+  // cameras included (a sub-pixel wobble there); filter by ctx.lr if one ever shows.
+  uint32_t render_width = 0;
+  uint32_t render_height = 0;
+  if (rex::ui::temporal::IsActive(render_width, render_height)) {
+    float jitter_x = 0.0f;
+    float jitter_y = 0.0f;
+    rex::ui::temporal::JitterForFrame(rex::ui::temporal::GuestSwapCount(), jitter_x, jitter_y);
+    const double dx = -double(jitter_x) * (ctx.f2.f64 - ctx.f1.f64) / render_width;
+    const double dy = double(jitter_y) * (ctx.f4.f64 - ctx.f3.f64) / render_height;
+    ctx.f1.f64 += dx;
+    ctx.f2.f64 += dx;
+    ctx.f3.f64 += dy;
+    ctx.f4.f64 += dy;
   }
 
   __imp__BuildPerspectiveProjectionMatrix(ctx, base);
