@@ -1,6 +1,6 @@
 [submodule "thirdparty/rexglue-sdk"]
 	path = thirdparty/rexglue-sdk
-	url = https://github.com/TheBiemGamer/rexglue-sdk.git
+	url = https://github.com/mitch030504/rexglue-sdk.git
 [submodule "thirdparty/skylanders-portal"]
 	path = thirdparty/skylanders-portal
 	url = https://github.com/TheBiemGamer/skylanders-portal.git
