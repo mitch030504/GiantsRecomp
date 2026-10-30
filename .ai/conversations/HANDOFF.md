@@ -10,13 +10,15 @@ Last session: [sessions/2026-10-30/223500-claude-code-backend-switch-windows-cro
   build first) and runs under Proton 10 (`SECONDS_TO_RUN=60 tools/windows_cross.sh run ...`).
 - Windows FSR comes from AMD's SDK 2.4 DLLs (FSR 4.1.2 on Vulkan/RDNA4 under Proton). XeSS works on
   both APIs under Proton. DLSS falls back to FSR here (no RTX). dlss5_layer drives DLSS5VKLayer.
-- Netplay: the user picked option 3 (compare gameplay state first); waiting for a recording.
+- Netplay option 3 done: identical inputs diverge ~10 s into Chapter 1 play, so lockstep is out.
+  STOP: the user picks host streaming or deterministic guest scheduling (docs/netplay.md).
+- Gameplay recordings are automated: `tools/bot_record.sh` (headless, ~7 min) writes
+  out/tmp/play.inputlog; replay with --portal_bot_figure=Spyro --clock_frame_locked=true.
 - Not pushed: SDK e71c645..7c31e50, main 851cdf8..HEAD. Ask before pushing; SDK first.
 
 ## Next Up
-1. The user's gameplay recording (`--clock_frame_locked=true --input_record=out/tmp/play.inputlog`,
-   2-3 min in a level with a load). Then netplay option 3 (state_watch ranges, 3x replay) and a
-   real-scene profile on native Vulkan and Proton D3D12/Vulkan.
+1. The user's netplay decision. Meanwhile: profile a real scene by replaying out/tmp/play.inputlog
+   (native Vulkan, Proton D3D12/Vulkan) and rerun the upscaler A/B in gameplay.
 2. Hands-on checks (user): Wayland mouse look / F4 at 150% / minimized; F4 Graphics API + Restart
    now; DLSS and DLSS 5 on an RTX card.
 3. Minor: upscale_quality preset, active upscaler shown in F4, remove the fsr2 present path,

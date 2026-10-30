@@ -48,3 +48,11 @@ Append-only. Newest at the bottom.
 **Files:** see sessions/2026-10-30/223500-claude-code-backend-switch-windows-cross-upscalers.md
 **Next:** user's gameplay recording -> netplay option 3 + profile; hands-on Wayland/F4 checks; push when asked.
 ---
+
+---
+## 2026-10-30 23:35 CET — claude-code #feature #investigation
+**Task:** Automate the gameplay recording (user: "cant the recording be done automated? ideally in the background"), then netplay option 3.
+**Outcome:** input_script + portal_bot_figure + tools/bot_record.sh record ~2.5 min of Chapter 1 headless (33bc5e8). Two replays diverge ~10 s into play → lockstep ruled out (d3ee542).
+**Files:** src/netplay/input_script.*, src/netplay/determinism.cpp, tools/bot_record.sh, tools/bot/chapter1.txt, docs/netplay.md
+**Next:** user picks streaming vs deterministic scheduling; profile + upscaler A/B with the recording.
+---
