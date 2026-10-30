@@ -92,6 +92,16 @@ play-debug *ARGS: build-debug
 play-release *ARGS: build-release
     LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:{{ sdk_lib_dir }}" DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH:-}:{{ sdk_lib_dir }}" ./out/build/{{ triple }}-release/giantsrecompiled{{ exe_suffix }} {{ ARGS }}
 
+# Cross-compile the Windows build on Linux (clang + xwin) into out/build/win-amd64-release-xwin.
+# See docs/development.md, "The Windows build, on Linux".
+build-windows-cross: build-release
+    tools/windows_cross.sh build
+
+# Run the cross-compiled Windows build under Proton (D3D12 through vkd3d-proton), e.g.
+#   just play-windows-cross --gpu_backend=vulkan
+play-windows-cross *ARGS:
+    HEADLESS=0 tools/windows_cross.sh run {{ ARGS }}
+
 # --- Package -------------------------------------------------------------------
 
 # Package the release build for copying to another machine: the executable, its runtime shared

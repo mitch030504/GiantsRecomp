@@ -80,6 +80,18 @@ The second command converts *your* `default.xex` into C++ code on your own machi
 
 With `just` installed, all of the above (both platforms) is just `just build-debug` or `just build-release`.
 
+### The Windows build, on Linux
+
+You can also cross-compile the Windows version on Linux and run it under Proton. That's how D3D12 (through vkd3d-proton) and the Windows-only upscaler SDKs get tested without a Windows PC. On top of the Linux tools above you need `lld` and `llvm` (for `lld-link`, `llvm-rc`, `llvm-mt` and `llvm-ar`), the MSVC CRT and Windows SDK unpacked with [xwin](https://github.com/Jake-Shadle/xwin) (`xwin --accept-license splat --output ~/opt/xwin`; set `XWIN_DIR` if you put it elsewhere), Wine, and Proton from Steam.
+
+```
+cmake --build --preset linux-amd64-release        # first: codegen runs the Linux rexglue
+tools/windows_cross.sh build                      # -> out/build/win-amd64-release-xwin/
+SECONDS_TO_RUN=60 tools/windows_cross.sh run --gpu_backend=d3d12
+```
+
+`run` uses Steam's "Proton 10.0" (`PROTON_DIR` to change it) with its own prefix in `out/tmp/proton-prefix`. It opens in a headless gamescope, so use the game's dump options (`--guest_output_dump_prefix=...`) to see frames, or `HEADLESS=0` for a normal window. Logs go to `out/build/win-amd64-release-xwin/logs/`. `just build-windows-cross` and `just play-windows-cross` do the same.
+
 ## For developers
 
 - `giantsrecomp_manifest.toml` and `config/default.toml` are the project settings and the fixes needed to convert `default.xex` correctly.

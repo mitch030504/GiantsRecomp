@@ -85,6 +85,7 @@ The easiest way to change settings is to press **F4** in-game. Everything is sav
 | Setting | What it does |
 | --- | --- |
 | `portal_mode` | `"software"`, `"usb"` or `"none"`. See [Portal of Power](#portal-of-power). |
+| `gpu_backend` | Graphics API: `"auto"` (default, D3D12 on Windows), `"d3d12"` or `"vulkan"`. Windows has both; Linux has Vulkan only. To get D3D12 on Linux, run the Windows build through Proton or Wine. If the chosen one can't start, the game uses the other. You can switch it in F4 → GPU and press **Restart now**. |
 | `gpu_allow_invalid_fetch_constants` | Fixes parts of the scene (or the whole screen) showing up blank. Recommended until I find the real cause. |
 | `resolution` | Window size when the game starts, like `"3440x1440"` or `"4k"`. |
 | `resolution_scale` | Renders at 1x to 8x before scaling down to your screen. Looks sharper but is harder on your GPU. Default is `1`. |
@@ -95,7 +96,7 @@ The easiest way to change settings is to press **F4** in-game. Everything is sav
 | `ultrawide_hud` | On a screen wider than 16:9, moves the HUD to the screen edges and keeps menus in proportion. Default is `true`. |
 | `skip_intro` | Skips the Activision and Toys for Bob logo movies at startup. Default is `true`. |
 | `user_data_root` | Where saves, achievements, shader cache and figures go. Leave it empty to use `Documents\giantsrecomp`. |
-| `vulkan_device` | **Linux only.** Picks which GPU to use, by index. `-1` (the default) chooses automatically. |
+| `vulkan_device` | **Vulkan only.** Picks which GPU to use, by index. `-1` (the default) chooses automatically. |
 
 You can also pass any setting as a command-line flag (like `--portal_mode software`), and that overrides the settings file. The one exception is `--game_data_root` (where `rom\` lives). It can only be a flag, and it already defaults to `rom` next to the executable.
 

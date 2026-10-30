@@ -114,10 +114,28 @@ endmacro()
 # codegen, including one a project assembles itself rather than taking the
 # library rexglue_setup_target() builds. The stamp comes first: the DEPFILE
 # names it.
+# A cross build (e.g. Windows on Linux) can't run the rexglue it builds, so codegen uses one that
+# runs on the build host: by default the SDK tree's native Linux build, else rexglue on PATH.
+if(CMAKE_CROSSCOMPILING)
+    if(REXSDK_DIR AND EXISTS "${REXSDK_DIR}/out/linux-amd64/rexglue")
+        set(_rexglue_host_default "${REXSDK_DIR}/out/linux-amd64/rexglue")
+    else()
+        find_program(_rexglue_host_default rexglue)
+    endif()
+    set(REXGLUE_HOST_TOOL "${_rexglue_host_default}" CACHE FILEPATH
+        "rexglue executable that runs on the build host, for codegen in a cross build")
+    if(NOT EXISTS "${REXGLUE_HOST_TOOL}")
+        message(WARNING "Cross build: no host rexglue for codegen. Build the native preset first, "
+            "or set REXGLUE_HOST_TOOL.")
+    endif()
+    set(_rexglue_codegen_tool "${REXGLUE_HOST_TOOL}")
+else()
+    set(_rexglue_codegen_tool $<TARGET_FILE:rex::rexglue>)
+endif()
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.build.stamp"
            ${REXGLUE_ENTRYPOINT_GENERATED_SOURCES}
-    COMMAND $<TARGET_FILE:rex::rexglue> codegen ${CMAKE_CURRENT_SOURCE_DIR}/giantsrecomp_manifest.toml
+    COMMAND ${_rexglue_codegen_tool} codegen ${CMAKE_CURRENT_SOURCE_DIR}/giantsrecomp_manifest.toml
     DEPFILE "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.d"
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Generating recompiled code for giantsrecomp"

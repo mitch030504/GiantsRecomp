@@ -53,6 +53,12 @@ endif()
 
 rexglue_setup_target(giantsrecompiled GPU_PLUGINS xenos)
 
+# src/netplay/determinism.cpp hashes with rex/hash.h, which includes xxhash.h. The SDK links
+# xxHash privately, so without this the header only resolved where the system has one installed.
+if(TARGET xxHash::xxhash)
+    target_link_libraries(giantsrecompiled PRIVATE xxHash::xxhash)
+endif()
+
 if(REXSDK_DIR)
     # An installed SDK ships imgui's headers next to its own; an in-tree build must point at them.
     target_include_directories(giantsrecompiled PRIVATE "${REXSDK_DIR}/thirdparty/imgui")

@@ -16,6 +16,8 @@ ultrawide_hud = true                      # lay out the HUD and menus for the re
 # vulkan_device = -1                      # GPU index for multi-GPU systems, -1 = auto-pick
 
 ["GPU"]
+# gpu_backend = "auto"                    # "auto" (D3D12 on Windows), "d3d12" or "vulkan"; Linux has
+                                           # Vulkan only. Changing it in F4 offers "Restart now"
 anisotropic_override = 5                  # texture filtering: 5 = 16x, 3 = 4x, 0 = off
 
 ["UI"]
