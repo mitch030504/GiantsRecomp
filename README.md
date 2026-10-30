@@ -21,7 +21,7 @@ Once you have that:
 
 Anything else can be changed later in-game by pressing **F4**.
 
-**Linux:** it's possible to build and run it on Linux with a Vulkan 1.x capable GPU, but it's experimental, so use it at your own risk. There's no installer, so you'll need to build it yourself (see [Building from source](#building-from-source)).
+**Linux:** it runs on Linux with a Vulkan 1.x capable GPU, but it's experimental, so use it at your own risk. Download `giantsrecomp-linux-amd64.tar.gz` from [Releases](https://github.com/TheBiemGamer/GiantsRecomp/releases), unpack it, and run `./linux-setup.sh /path/to/your/game.iso` (or the extracted folder) in that folder. Then start the game with `./giantsrecompiled` from the same folder. Add `--portal usb` to use a real portal, and run `./linux-setup.sh --help` for the other options.
 
 ---
 

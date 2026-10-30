@@ -127,6 +127,19 @@ package-installer: build-release
     "$iscc" installer/GiantsRecomp.iss && \
     echo "Installer built at installer/Output/GiantsRecompSetup.exe"
 
+# Linux counterpart of package-installer: a tarball with the game, its libraries (found through
+# the binary's $ORIGIN runpath) and linux-setup.sh, which puts the user's own game into rom/ and
+# writes giantsrecomp.toml. No giantsrecomp.toml is shipped, so the setup script's choices apply.
+package-linux: build-release
+    dist=dist/giantsrecomp-linux-amd64 && \
+    rm -rf "$dist" && \
+    mkdir -p "$dist" && \
+    cp out/build/linux-amd64-release/giantsrecompiled out/build/linux-amd64-release/giantsrecomp_xexcheck "$dist/" && \
+    cp {{ sdk_lib_dir }}/*.so "$dist/" && \
+    cp installer/linux-setup.sh installer/70-portal-of-power.rules installer/settings_template.toml "$dist/" && \
+    tar -C dist -czf dist/giantsrecomp-linux-amd64.tar.gz giantsrecomp-linux-amd64 && \
+    echo "Packaged dist/giantsrecomp-linux-amd64.tar.gz"
+
 # --- Test ------------------------------------------------------------------
 
 test-debug: build-debug

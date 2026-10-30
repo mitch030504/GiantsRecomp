@@ -17,6 +17,17 @@ recipe in `justfile` for what it does under the hood. Needs Inno Setup 6 install
 jrsoftware.org, or `winget install JRSoftware.InnoSetup`) — the recipe checks both of its common
 install locations and reports clearly if it can't find `ISCC.exe`.
 
+### Linux
+
+```
+just package-linux
+```
+
+Builds the Linux release binary and packs it into `dist/giantsrecomp-linux-amd64.tar.gz` with its
+shared libraries, `giantsrecomp_xexcheck`, `installer/linux-setup.sh` (the Linux counterpart of the
+installer: copies or extracts the user's game into `rom/` after the version check, and writes
+`giantsrecomp.toml`), and the udev rule for a real portal. No game data and no settings file.
+
 ## Before publishing, verify
 
 - Fresh, clean Windows VM (no Visual Studio/CMake/Ninja installed) — install with a real ISO, and
@@ -31,9 +42,13 @@ install locations and reports clearly if it can't find `ISCC.exe`.
 - The Start Menu shortcut launches the game, and an "Uninstall GiantsRecomp" entry appears in both
   the Start Menu and Windows' Add/Remove Programs.
 
+- Linux: unpack the tarball on a clean distro and run `./linux-setup.sh` with a real ISO (needs
+  `xdvdfs` or `extract-xiso`) and with an extracted folder; a wrong-version game is rejected and
+  leaves no `rom/` behind; the game starts with `cd <folder> && ./giantsrecompiled`.
+
 ## Publish
 
-Upload `installer/Output/GiantsRecompSetup.exe` to a new GitHub Release. Note in the release
+Upload `installer/Output/GiantsRecompSetup.exe` and `dist/giantsrecomp-linux-amd64.tar.gz` to a new GitHub Release. Note in the release
 description which exact game version/region the installer was built and tested against.
 
 ## Bump the version

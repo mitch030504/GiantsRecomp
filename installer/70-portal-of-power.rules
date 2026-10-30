@@ -1,0 +1,8 @@
+# Lets the logged-in user open a real Portal of Power without root (portal_mode = "usb").
+# Same VID/PID list as thirdparty/skylanders-portal/src/portal/usb/usb_portal.h.
+# Install: sudo cp 70-portal-of-power.rules /etc/udev/rules.d/ && sudo udevadm control --reload
+# then unplug and replug the portal.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1430", ATTRS{idProduct}=="0150", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1430", ATTRS{idProduct}=="1f17", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1430", ATTRS{idProduct}=="0150", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1430", ATTRS{idProduct}=="1f17", TAG+="uaccess"
