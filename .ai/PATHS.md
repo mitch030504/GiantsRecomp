@@ -13,6 +13,7 @@
 - `src/ui/vulkan/vulkan_temporal_inputs.cpp` + `include/rex/ui/vulkan/temporal_inputs.h` — motion/depth/color history
 - `src/ui/shaders/temporal_motion_cs.glsl` (+ `vulkan_spirv/temporal_motion_cs.h`) — block-matching motion estimation
 - `include/rex/ui/temporal_jitter.h`, `src/ui/temporal_jitter.cpp` — shared jitter + guest swap count
+- `src/core/clock.cpp`, `include/rex/chrono/clock.h` — guest clock; `clock_frame_locked` (deterministic time)
 - `src/ui/d3d12/d3d12_presenter.cpp` — D3D12 presenter (temporal path not yet updated)
 - `src/input/input_system.cpp` — device assignment, state/keystroke filter hook
 - `src/kernel/xboxkrnl/xboxkrnl_video.cpp` — VdSwap, guest video mode
@@ -28,6 +29,7 @@
 
 ## Tools
 - `tools/compare_state_hashes.py` — diff two `state_hash_log` runs
+- `tools/upscaler_ab.sh`, `tools/upscaler_ab_analyze.py` — headless frame-locked FSR A/B vs native 4K
 - `tools/ghidra_*.py`, `tools/rexglue_toml_sync.py` — RE workflow
 
 ## Installer / packaging
@@ -42,6 +44,8 @@
 - `docs/development.md` — build from source; `docs/build.md` — codegen fixes, testing
 - `docs/releasing.md` — release packaging (Windows + Linux)
 - `docs/reverse-engineering.md` — Ghidra workflow
+- `docs/upscaling.md` — FSR 3.1 temporal path, A/B method, 9070 XT results
+- `docs/netplay.md` — determinism tools, frame-locked time, findings + options
 ### Agent & Project Config
 - `CLAUDE.md`, `AGENTS.md`, `codex.md` — agent handoff snippet
 - `README.md` — project readme

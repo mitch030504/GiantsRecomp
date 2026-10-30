@@ -32,3 +32,11 @@ Append-only. Newest at the bottom.
 **Files:** SDK presenter/temporal files, src/hooks/ultrawide_hook.cpp, .gitmodules, .gitignore, .ai/*, CLAUDE.md, AGENTS.md, codex.md
 **Next:** Jitter-sign A/B and quality check on the 9070 XT; vendor backends; Wayland items.
 ---
+
+---
+## 2026-10-30 18:41 — claude-code #feature #bugfix #investigation
+**Task:** Resume on the RX 9070 XT desktop: build, verify FSR 3.1, red tint, profile, then the plan.
+**Outcome:** Built + ctest 14/14. FSR 3.1 verified against native 4K; x jitter flipped. Red tint not reproducible on RADV. SDK: frame-locked guest time, perf CSV fix, swapchain validation fix. Determinism: still diverges from boot → stop point, options in docs/netplay.md. Nothing pushed.
+**Files:** see sessions/2026-10-30/184130-claude-code-desktop-fsr-verify-netplay-time.md
+**Next:** user picks a netplay option; gameplay input recording for FSR A/B + profiling; hands-on Wayland checks; push when asked.
+---

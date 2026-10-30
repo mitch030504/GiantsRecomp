@@ -1,35 +1,34 @@
 # Agent Handoff
-Last updated: 2026-10-30 16:53 CET by claude-code
+Last updated: 2026-10-30 18:45 CET by claude-code
 
 ## Active Work
-- FSR 3.1 temporal path on Vulkan: WORKING and committed (SDK 05a33af; jitter hook in main).
-  Verified on Intel: upscaled 720p->1080p dumps are sharper than bilinear with no ghost trails.
-  - Last session: [sessions/2026-10-30/154429-claude-code-linux-upscalers-netplay.md]
-  - Still to do: strict jitter-sign A/B, quality on a real GPU, D3D12 parity, FSR 4.1.2 / DLSS / XeSS.
-  - Root causes found on the way: Presenter layout differed between libraries (ODR, SDK c1bf1cb);
-    GPU plugin staging could go stale (SDK 90cf5b8).
+Now on the CachyOS desktop (RX 9070 XT, RADV, 4K TV at 150%), repo at ~/Projects/GiantsRecomp.
+Last session: [sessions/2026-10-30/184130-claude-code-desktop-fsr-verify-netplay-time.md]
+- FSR 3.1 (Vulkan) is verified on RDNA4 against native 4K, and the x jitter sign is fixed (main
+  3fedb34). Method and numbers: docs/upscaling.md; rerun with `tools/upscaler_ab.sh`.
+- Netplay is at the plan's STOP point. `clock_frame_locked` (SDK 36b3e1c) makes rendering repeatable,
+  but guest memory diverges from boot (heap allocation order, host audio). The user has to pick
+  an option from docs/netplay.md (host streaming / deterministic scheduling / gameplay-state check
+  first, which is recommended).
+- Local commits NOT pushed: SDK 360fc95, 36b3e1c, eea516c; main 3fedb34..d6b8f9b. Ask before
+  pushing; SDK first.
 
-## Resuming on the RX 9070 XT desktop (CachyOS)
-This repo arrived as `GiantsRecomp-handoff-2026-10-30.zip` (working tree incl. uncommitted work,
-both git repos with history, `rom/` game files, `generated/` code; no `out/` build dir).
-1. Unzip to `~/Projects/GiantsRecomp` (same path keeps Claude Code's memory key and `codegen.d`).
-2. `sudo pacman -S --needed clang cmake ninja git vulkan-headers shaderc glslang wine python`
-   (`just` optional). Check `clang --version`; if there's no `clang-20`, pass the compilers:
-   `cmake --preset linux-amd64-release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`
-3. Build: `cmake --build out/build/linux-amd64-release` (if it complains about generated code:
-   `--target giantsrecomp_codegen`, reconfigure, build). Then `ctest --test-dir out/build/linux-amd64-release`.
-4. Restore Claude memory: `mkdir -p ~/.claude/projects/-home-$USER-Projects-GiantsRecomp/memory &&
-   cp .ai/claude-memory/*.md ~/.claude/projects/-home-$USER-Projects-GiantsRecomp/memory/`
-   (the laptop-specific notes there — Iris Xe, tmpfs /tmp — describe the OLD machine).
-5. First jobs on this GPU (RADV, RDNA4):
-   - Finish the FSR 3.1 path (see Active Work), compare `--present_effect=fsr3` vs `fsr` dumps.
-   - Retry the README red tint: AMD/RADV may reproduce what Intel didn't.
-   - Profile Linux performance with a real GPU (old laptop was GPU-bound at 4K internal).
-   - FSR 4.1.2: hardware supports it, but AMD ships it as Windows DLLs only; on Linux expect the
-     FSR 3.1 fallback. Wire the SDK 2.4 bump + version select anyway; verify on Windows/Proton.
-   - DLSS and XeSS remain compile-only here.
+## Next Up
+1. The user's netplay decision (above).
+2. A gameplay input recording (`--input_record=out/tmp/play.inputlog`, 2-3 min in a level). Then
+   rerun the FSR A/B on hard edges and profile a real scene (the title screen uses only 0.2 CPU
+   cores and 28% GPU).
+3. Hands-on Wayland checks: mouse look (relative mode), F4/F6 overlays at 150%, game running while
+   minimized. The code paths look right (IMMEDIATE present on RADV, so no FIFO stall).
+4. Upscaler interface + D3D12 parity, FSR SDK 2.4 (FSR 4 falls back to 3.1 on Linux), NGX DLSS,
+   XeSS. Windows presets need a Windows host; a clang-cl + ~/opt/xwin toolchain would be new work.
 
 ## Recent Completions
+- [2026-10-30 claude-code] Swapchain retired while presenting: VUID-01282 gone (SDK eea516c) #bugfix
+- [2026-10-30 claude-code] Netplay determinism rerun with frame-locked time + docs/netplay.md (f7dff47) #investigation
+- [2026-10-30 claude-code] clock_frame_locked + perf_log_csv fix (SDK 36b3e1c, 360fc95; bump 19b08bc) #feature #bugfix
+- [2026-10-30 claude-code] FSR 3.1 verified vs native 4K; x jitter flipped; tools/upscaler_ab.sh (3fedb34) #bugfix
+- [2026-10-30 claude-code] Red tint retried on RADV: not reproducible (original maintainer's report) #investigation
 - [2026-10-30 claude-code] FSR 3.1 real inputs + Presenter ODR fix + plugin staging fix (SDK c1bf1cb..05a33af) #feature #bugfix
 - [2026-10-30 claude-code] FidelityFX Vulkan scratch-alignment fix (SDK ce2b55c) — FSR context no longer hangs #bugfix
 - [2026-10-30 claude-code] video_mode 0=auto, window follows resolution (SDK 2c4437a) #bugfix
@@ -50,7 +49,11 @@ both git repos with history, `rom/` game files, `generated/` code; no `out/` bui
   Keep big files out of `/tmp` on any machine; use `out/tmp/` (git-ignored).
 - Never screenshot the desktop; use `--guest_output_dump_prefix=` / `--present_temporal_dump_prefix=`.
 - String cvars need `--flag=value` (space form sets them to "true").
-- Upscale test: `--resolution=1920x1080 --resolution_scale=1 --present_effect=fsr3 --video_mode_width=1280 --video_mode_height=720`
-  (+ `--present_temporal_dump_prefix=out/tmp/fsr --guest_output_dump_prefix=out/tmp/in` for images).
+- Upscale test: `tools/upscaler_ab.sh` (headless gamescope 4K, frame-locked, vs native 4K).
+  Manual: `--present_effect=fsr3 --video_mode_width=1920 --video_mode_height=1080` in a 4K window.
+- The Bash tool runs zsh: never pass several flags through one unquoted `$VAR` (they arrive as ONE
+  argument). GPU tests while the TV may be off: `gamescope --backend headless -W 3840 -H 2160 --
+  env -u WAYLAND_DISPLAY ...`. Compare runs frame by frame only with `--clock_frame_locked=true`.
+- Perf counters (perf_log_csv, the F4 graph) exist only in non-Release builds.
 - Validation: `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation`; errors appear as "Vulkan Error" in logs.
 - Game logs: `out/build/linux-amd64-release/logs/` (newest file).
