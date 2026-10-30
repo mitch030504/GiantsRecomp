@@ -15,10 +15,12 @@
 #include <string>
 
 #include <rex/cvar.h>
+#include <rex/input/input_system.h>
 #include <rex/logging.h>
 #include <rex/rex_app.h>
 
 #include "localization.h"
+#include "netplay/determinism.h"
 #include "portal_rex/portal_rex.h"
 #include "xex_verify.h"
 
@@ -60,6 +62,9 @@ class GiantsrecompApp : public rex::ReXApp {
 
   void OnPostSetup() override {
     skylanders::InstallPortal(user_data_root() / "figures");
+    // XAM reaches the input system the same way: the runtime only stores it by its interface.
+    giantsrecomp::netplay::InstallDeterminismTools(
+        static_cast<rex::input::InputSystem*>(runtime()->input_system()));
     // The F3 debug overlay's FPS line only shows once something calls this; nothing did, so it
     // silently stayed blank. Sampled from the SDK's dedicated guest-swap counter (which only
     // advances on an actual presented guest frame -- see CommandProcessor::guest_frame_count())
