@@ -81,6 +81,12 @@ REXCVAR_DEFINE_BOOL(ultrawide_fov, true, "Graphics",
                     "assumption. Only ever widens (a 4:3 or 16:9 resolution is untouched). "
                     "Requires 'resolution' to be set to see the real window size.");
 
+REXCVAR_DEFINE_INT32(temporal_jitter_flip, 0, "Graphics",
+                     "Development: negate the projection jitter for a temporal-upscaler sign "
+                     "A/B (1 = x, 2 = y, 3 = both). The upscaler is still told the unflipped "
+                     "offset, so anything but 0 should look worse.")
+    .range(0, 3);
+
 REX_EXTERN(__imp__BuildPerspectiveProjectionMatrix);
 
 REX_HOOK_RAW(BuildPerspectiveProjectionMatrix) {
@@ -110,16 +116,21 @@ REX_HOOK_RAW(BuildPerspectiveProjectionMatrix) {
   }
 
   // Temporal upscaling: render this frame with the sub-pixel offset the upscaler will be told about.
-  // Clip space moves by (2 jx / w, -2 jy / h), and moving the frustum window moves the image the
-  // other way. ponytail: every perspective build in the frame gets the same offset, off-screen
-  // cameras included (a sub-pixel wobble there); filter by ctx.lr if one ever shows.
+  // Moving the frustum window moves the image the other way. The signs are measured, not derived
+  // (tools/upscaler_ab.sh): against a native-4K render of the same frames, moving the window by
+  // (+jx, +jy) pixels matched best; the previous -jx cost 1.0 dB and negating y 1.2 dB
+  // (docs/upscaling.md). ponytail: every perspective build in the frame gets the same offset,
+  // off-screen cameras included (a sub-pixel wobble there); filter by ctx.lr if one ever shows.
   uint32_t render_width = 0;
   uint32_t render_height = 0;
   if (rex::ui::temporal::IsActive(render_width, render_height)) {
     float jitter_x = 0.0f;
     float jitter_y = 0.0f;
     rex::ui::temporal::JitterForFrame(rex::ui::temporal::GuestSwapCount(), jitter_x, jitter_y);
-    const double dx = -double(jitter_x) * (ctx.f2.f64 - ctx.f1.f64) / render_width;
+    const int32_t flip = REXCVAR_GET(temporal_jitter_flip);
+    if (flip & 1) jitter_x = -jitter_x;
+    if (flip & 2) jitter_y = -jitter_y;
+    const double dx = double(jitter_x) * (ctx.f2.f64 - ctx.f1.f64) / render_width;
     const double dy = double(jitter_y) * (ctx.f4.f64 - ctx.f3.f64) / render_height;
     ctx.f1.f64 += dx;
     ctx.f2.f64 += dx;
