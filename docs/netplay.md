@@ -69,3 +69,22 @@ options:
    state-hash resync could work.
 
 Option 3 is the cheapest next step and decides between 1 and 2.
+
+## Findings in gameplay (Chapter 1, 2026-10-30)
+
+Option 3 was tested with the bot recording (`tools/bot_record.sh`): the same `play.inputlog`
+replayed twice with `clock_frame_locked`, frames compared every 120 guest frames.
+
+- Up to the start of play (title, menus, level load, Spyro standing still at frame ~6000-7200), the
+  runs match closely: the same frame shows the same scene, and only idle animation and particles
+  differ.
+- Once Spyro moves (frame 7000), the runs split within about 10 seconds. At first the pose and the
+  animation phase differ, then the attacks hit differently, and soon gold counts and positions
+  differ (23 vs 21 gold at the end of the recording). Two replays split the same way as the
+  recording and a replay do, so this isn't the recording; identical inputs don't give identical
+  gameplay.
+
+So gameplay state isn't deterministic across runs, and plain input lockstep would desync within
+seconds. Option 3 rules itself out: the remaining choices are host streaming (option 1) or
+deterministic guest scheduling (option 2).
+
