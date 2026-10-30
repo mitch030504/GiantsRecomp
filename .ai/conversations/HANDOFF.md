@@ -1,29 +1,33 @@
 # Agent Handoff
-Last updated: 2026-10-30 18:45 CET by claude-code
+Last updated: 2026-10-30 22:35 CET by claude-code
 
 ## Active Work
-Now on the CachyOS desktop (RX 9070 XT, RADV, 4K TV at 150%), repo at ~/Projects/GiantsRecomp.
-Last session: [sessions/2026-10-30/184130-claude-code-desktop-fsr-verify-netplay-time.md]
-- FSR 3.1 (Vulkan) is verified on RDNA4 against native 4K, and the x jitter sign is fixed (main
-  3fedb34). Method and numbers: docs/upscaling.md; rerun with `tools/upscaler_ab.sh`.
-- Netplay is at the plan's STOP point. `clock_frame_locked` (SDK 36b3e1c) makes rendering repeatable,
-  but guest memory diverges from boot (heap allocation order, host audio). The user has to pick
-  an option from docs/netplay.md (host streaming / deterministic scheduling / gameplay-state check
-  first, which is recommended).
-- Local commits NOT pushed: SDK 360fc95, 36b3e1c, eea516c; main 3fedb34..d6b8f9b. Ask before
-  pushing; SDK first.
+CachyOS desktop (RX 9070 XT, RADV, 4K TV at 150%), repo at ~/Projects/GiantsRecomp.
+Last session: [sessions/2026-10-30/223500-claude-code-backend-switch-windows-cross-upscalers.md]
+- F4 → GPU → gpu_backend switches D3D12/Vulkan (Windows has both; Linux Vulkan only; D3D12 on
+  Linux = the Windows build under Proton). temporal_upscaler = fsr | xess | dlss.
+- The Windows build cross-compiles here (`tools/windows_cross.sh build`, needs the native release
+  build first) and runs under Proton 10 (`SECONDS_TO_RUN=60 tools/windows_cross.sh run ...`).
+- Windows FSR comes from AMD's SDK 2.4 DLLs (FSR 4.1.2 on Vulkan/RDNA4 under Proton). XeSS works on
+  both APIs under Proton. DLSS falls back to FSR here (no RTX). dlss5_layer drives DLSS5VKLayer.
+- Netplay: the user picked option 3 (compare gameplay state first); waiting for a recording.
+- Not pushed: SDK e71c645..7c31e50, main 851cdf8..HEAD. Ask before pushing; SDK first.
 
 ## Next Up
-1. The user's netplay decision (above).
-2. A gameplay input recording (`--input_record=out/tmp/play.inputlog`, 2-3 min in a level). Then
-   rerun the FSR A/B on hard edges and profile a real scene (the title screen uses only 0.2 CPU
-   cores and 28% GPU).
-3. Hands-on Wayland checks: mouse look (relative mode), F4/F6 overlays at 150%, game running while
-   minimized. The code paths look right (IMMEDIATE present on RADV, so no FIFO stall).
-4. Upscaler interface + D3D12 parity, FSR SDK 2.4 (FSR 4 falls back to 3.1 on Linux), NGX DLSS,
-   XeSS. Windows presets need a Windows host; a clang-cl + ~/opt/xwin toolchain would be new work.
+1. The user's gameplay recording (`--clock_frame_locked=true --input_record=out/tmp/play.inputlog`,
+   2-3 min in a level with a load). Then netplay option 3 (state_watch ranges, 3x replay) and a
+   real-scene profile on native Vulkan and Proton D3D12/Vulkan.
+2. Hands-on checks (user): Wayland mouse look / F4 at 150% / minimized; F4 Graphics API + Restart
+   now; DLSS and DLSS 5 on an RTX card.
+3. Minor: upscale_quality preset, active upscaler shown in F4, remove the fsr2 present path,
+   find why frame-locked runs differ under Proton.
 
 ## Recent Completions
+- [2026-10-30 claude-code] DLSS via NGX on D3D12+Vulkan, Linux+Windows (SDK 7c31e50, main 167ea1d) #feature
+- [2026-10-30 claude-code] XeSS 3.0.2 on D3D12+Vulkan (SDK 7752196) #feature
+- [2026-10-30 claude-code] dlss5_layer for DLSS5VKLayer (SDK 8fb185f) #feature
+- [2026-10-30 claude-code] D3D12 temporal parity + FidelityFX SDK 2.4 on Windows (SDK 180cfaf, main a28fd5d) #feature
+- [2026-10-30 claude-code] gpu_backend + Restart now, Windows cross-build + Proton runner (SDK e71c645..85d0fab, main 851cdf8) #feature #tooling
 - [2026-10-30 claude-code] Swapchain retired while presenting: VUID-01282 gone (SDK eea516c) #bugfix
 - [2026-10-30 claude-code] Netplay determinism rerun with frame-locked time + docs/netplay.md (f7dff47) #investigation
 - [2026-10-30 claude-code] clock_frame_locked + perf_log_csv fix (SDK 36b3e1c, 360fc95; bump 19b08bc) #feature #bugfix
@@ -56,4 +60,9 @@ Last session: [sessions/2026-10-30/184130-claude-code-desktop-fsr-verify-netplay
   env -u WAYLAND_DISPLAY ...`. Compare runs frame by frame only with `--clock_frame_locked=true`.
 - Perf counters (perf_log_csv, the F4 graph) exist only in non-Release builds.
 - Validation: `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation`; errors appear as "Vulkan Error" in logs.
+- Proton runs: use Proton's wine with WINEDLLOVERRIDES for d3d12/dxgi (scripts do it); Wine's builtin
+  vkd3d breaks resolves. Windows logs: out/build/win-amd64-release-xwin/logs/. Proton frame-locked
+  runs are not bit-identical, so Windows A/B numbers are rough.
+- Reconfiguring out/build/linux-amd64-release needs -DCMAKE_C_COMPILER=clang
+  -DCMAKE_CXX_COMPILER=clang++ (no clang-20 on PATH). Never pipe cmake configure into head.
 - Game logs: `out/build/linux-amd64-release/logs/` (newest file).

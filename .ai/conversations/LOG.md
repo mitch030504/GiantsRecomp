@@ -40,3 +40,11 @@ Append-only. Newest at the bottom.
 **Files:** see sessions/2026-10-30/184130-claude-code-desktop-fsr-verify-netplay-time.md
 **Next:** user picks a netplay option; gameplay input recording for FSR A/B + profiling; hands-on Wayland checks; push when asked.
 ---
+
+---
+## 2026-10-30 22:35 CET — claude-code #feature #bugfix #tooling
+**Task:** Finish the open items; D3D12/Vulkan switch in F4; then DLSS5VKLayer and XeSS on Vulkan.
+**Outcome:** gpu_backend + Restart now; Windows cross-build + Proton runner; D3D12 temporal parity; FSR 4.1.2 (SDK 2.4) on Windows; XeSS on D3D12+Vulkan; DLSS via NGX (fallback verified); dlss5_layer. Netplay/profile wait for a gameplay recording.
+**Files:** see sessions/2026-10-30/223500-claude-code-backend-switch-windows-cross-upscalers.md
+**Next:** user's gameplay recording -> netplay option 3 + profile; hands-on Wayland/F4 checks; push when asked.
+---

@@ -19,20 +19,27 @@
 | FSR 3.1 verified on RX 9070 XT: jitter sign A/B vs native 4K (x flipped), quality + GPU cost (docs/upscaling.md) | done | claude-code | 2026-10-30 |
 | Vulkan validation: swapchain retired while presenting (VUID-01282) | done | claude-code | 2026-10-30 |
 | Linux performance profile on the 9070 XT | title screen only: 0.2 CPU cores, 28% GPU at 60 fps; needs a gameplay input recording to go further | claude-code | 2026-10-30 |
-| FSR 4.1.2 (SDK 2.4 bump), DLSS 4/5 (NGX), XeSS 3.0.2 backends | pending | — | — |
-| D3D12 temporal path parity | pending | — | — |
+| Graphics API switch (gpu_backend in F4 + Restart now), Vulkan in Windows builds | done | claude-code | 2026-10-30 |
+| Windows cross-build on Linux (xwin) + Proton runner (tools/windows_cross.sh) | done | claude-code | 2026-10-30 |
+| D3D12 temporal path parity (real inputs, dump) | done: 36.24 dB vs Vulkan 36.08 | claude-code | 2026-10-30 |
+| FSR 4.1.2 (FidelityFX SDK 2.4 prebuilt, Windows, D3D12 + Vulkan) | done: FSR 4.1.2 on Vulkan under Proton, 3.1.6 on vkd3d | claude-code | 2026-10-30 |
+| XeSS 3.0.2 SR on D3D12 + Vulkan (Windows) | done, runs under Proton | claude-code | 2026-10-30 |
+| DLSS SR (NGX 310.9.16), Linux + Windows | done, fallback verified; needs RTX test | claude-code | 2026-10-30 |
+| DLSS 5 via DLSS5VKLayer (dlss5_layer, Linux) | done, needs NVIDIA test | claude-code | 2026-10-30 |
+| upscale_quality preset, active provider in F4, drop fsr2 path | pending (minor) | — | — |
+| Proton frame-lock determinism (A/B numbers swing) | pending | — | — |
 | Netplay phase 0 determinism tools + first idle test | done | claude-code | 2026-10-30 |
 | Netplay: virtualize guest time, rerun determinism | done: clock_frame_locked; rendering repeatable, memory still diverges from boot (heap order, audio) → STOP: user picks an option in docs/netplay.md | claude-code | 2026-10-30 |
+| Netplay option 3 (gameplay-state compare), chosen by the user | waiting for a gameplay input recording | — | — |
 | Netplay phases 1–4 (ENet, input sync, portal sync, desync UI) | blocked on the determinism decision | — | — |
 
 ## Blockers
 - Netplay: guest memory diverges between identical runs from boot (heap allocation order follows
   thread scheduling; host audio writes). Needs the user's choice in docs/netplay.md.
-- D3D12 parity / FSR 4 / XeSS can't be built or run on Linux: the Windows presets need a Windows
-  host (a clang-cl + ~/opt/xwin toolchain file would be new work).
-- FSR 4.1.2 needs RDNA2+ but ships as Windows DLLs only (no native Linux .so): on Linux it falls
-  back to FSR 3.1; testing FSR 4 needs a Windows build on that card (or Proton).
-- DLSS (RTX) and XeSS (Windows SDK) still can't be run on either machine: compile-check only.
+- Netplay option 3 and the real-scene profile need a 2-3 minute gameplay input recording.
+- FSR 4.1.2 and XeSS ship Windows DLLs only: native Linux keeps FSR 3.1; the Windows build under
+  Proton gets them (FSR 4 on Vulkan).
+- DLSS / DLSS 5 can't run here (no RTX card): fallback paths verified only.
 
 ## Key Decisions
 - Motion vectors from present-time block matching (game-agnostic) first; game camera MVs later.

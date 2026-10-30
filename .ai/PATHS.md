@@ -29,7 +29,10 @@
 
 ## Tools
 - `tools/compare_state_hashes.py` — diff two `state_hash_log` runs
-- `tools/upscaler_ab.sh`, `tools/upscaler_ab_analyze.py` — headless frame-locked FSR A/B vs native 4K
+- `tools/upscaler_ab.sh`, `tools/upscaler_ab_analyze.py` — headless frame-locked FSR A/B vs native 4K (TARGET=windows-d3d12|windows-vulkan for the Proton build)
+- `tools/windows_cross.sh`, `cmake/toolchains/windows-xwin-clang.cmake` — Windows build on Linux (xwin) and Proton runner
+- SDK `src/ui/{ffx,xess,dlss}_runtime.*` — upscaler runtimes; `src/ui/d3d12/d3d12_temporal_inputs.cpp` — D3D12 motion/depth/history
+- SDK `cmake/rexglue_{fidelityfx_prebuilt,xess,dlss}.cmake` — pinned vendor downloads (FidelityFX 2.4, XeSS 3.0.2, DLSS 310.9.16)
 - `tools/ghidra_*.py`, `tools/rexglue_toml_sync.py` — RE workflow
 
 ## Installer / packaging
@@ -44,7 +47,7 @@
 - `docs/development.md` — build from source; `docs/build.md` — codegen fixes, testing
 - `docs/releasing.md` — release packaging (Windows + Linux)
 - `docs/reverse-engineering.md` — Ghidra workflow
-- `docs/upscaling.md` — FSR 3.1 temporal path, A/B method, 9070 XT results
+- `docs/upscaling.md` — temporal path (FSR 3.1/4.1.2, XeSS, DLSS), A/B method, 9070 XT + Proton results
 - `docs/netplay.md` — determinism tools, frame-locked time, findings + options
 ### Agent & Project Config
 - `CLAUDE.md`, `AGENTS.md`, `codex.md` — agent handoff snippet
