@@ -8,6 +8,7 @@ and D3D12. `temporal_upscaler` picks which one:
 | --- | --- | --- |
 | `fsr` (default) | FSR 3.1, built from source | AMD's FidelityFX SDK 2.4 DLLs: FSR 4.1.2 where the GPU and driver support it, FSR 3.1 otherwise |
 | `xess` | not available (Intel ships no Linux library) | Intel XeSS 3.0.2 (`libxess.dll`), on D3D12 and Vulkan |
+| `dlss` | NVIDIA DLSS (NGX 310.9.16), Vulkan, RTX GPUs | the same, on D3D12 and Vulkan |
 
 If the chosen upscaler can't start, the game logs why and uses FidelityFX.
 
@@ -94,4 +95,6 @@ cross-compiled Windows build (`tools/windows_cross.sh`).
   plan is camera and per-object motion vectors from the game (see `.ai/plans/`).
 - Find what still differs between frame-locked runs under Proton, so the Windows numbers become
   exact.
-- DLSS (NGX) isn't wired in yet; DLSS 5 on Linux goes through DLSS5VKLayer instead (see the README).
+- DLSS is only verified to fall back cleanly here (no RTX card): its jitter sign and image quality
+  need checking on an RTX GPU with the same A/B. DLSS 5 on Linux goes through DLSS5VKLayer instead
+  (see the README).
