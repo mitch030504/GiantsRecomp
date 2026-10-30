@@ -14,3 +14,6 @@
 /.superpowers/
 .mcp.json
 /bin/
+
+# Claude Code memory copy for moving between machines; has local paths.
+/.ai/claude-memory/
