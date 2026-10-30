@@ -1,5 +1,5 @@
 # Agent Handoff
-Last updated: 2026-10-30 22:35 CET by claude-code
+Last updated: 2026-10-30 23:50 CET by claude-code
 
 ## Active Work
 CachyOS desktop (RX 9070 XT, RADV, 4K TV at 150%), repo at ~/Projects/GiantsRecomp.
@@ -10,19 +10,47 @@ Last session: [sessions/2026-10-30/223500-claude-code-backend-switch-windows-cro
   build first) and runs under Proton 10 (`SECONDS_TO_RUN=60 tools/windows_cross.sh run ...`).
 - Windows FSR comes from AMD's SDK 2.4 DLLs (FSR 4.1.2 on Vulkan/RDNA4 under Proton). XeSS works on
   both APIs under Proton. DLSS falls back to FSR here (no RTX). dlss5_layer drives DLSS5VKLayer.
-- Netplay option 3 done: identical inputs diverge ~10 s into Chapter 1 play, so lockstep is out.
-  STOP: the user picks host streaming or deterministic guest scheduling (docs/netplay.md).
+- Netplay option 3 done: identical inputs diverge ~10 s into Chapter 1 play, so input lockstep
+  needs determinism first. Decision made: determinism route (see Next Up).
 - Gameplay recordings are automated: `tools/bot_record.sh` (headless, ~7 min) writes
   out/tmp/play.inputlog; replay with --portal_bot_figure=Spyro --clock_frame_locked=true.
-- Not pushed: SDK e71c645..7c31e50, main 851cdf8..HEAD. Ask before pushing; SDK first.
+- Pushed: SDK up to 7c31e50, main up to 69e4baf. Not pushed: main 33bc5e8..HEAD (bot, netplay
+  result, handoff). Ask before pushing.
 
 ## Next Up
-1. The user's netplay decision. Meanwhile: profile a real scene by replaying out/tmp/play.inputlog
-   (native Vulkan, Proton D3D12/Vulkan) and rerun the upscaler A/B in gameplay.
-2. Hands-on checks (user): Wayland mouse look / F4 at 150% / minimized; F4 Graphics API + Restart
-   now; DLSS and DLSS 5 on an RTX card.
-3. Minor: upscale_quality preset, active upscaler shown in F4, remove the fsr2 present path,
-   find why frame-locked runs differ under Proton.
+The user chose the **determinism route** ("whatever you think is best"): they want netplay that
+is as insensitive to lag as possible. The plan agreed in chat:
+1. Make the game deterministic (option 2): fixed guest thread order, and audio and timers paced by
+   guest time. The goal is two replays of out/tmp/play.inputlog staying pixel-identical for the
+   full ~2.5 min.
+2. Delay-based lockstep (input delay adapted to ping) as the first playable online version.
+3. Rollback (save/restore guest memory + threads + GPU state) on top, if it can be made fast enough.
+The Unraid server (ssh root@192.168.8.2; i9 Alder Lake-HX, UHD 770 iGPU, already runs Nakama for
+another project + Nginx Proxy Manager) only does lobby/join codes, NAT traversal, relay and a
+shared clock. It does NOT run the game (no netcode in the game; the iGPU is too weak). The user
+asked why a dedicated server wouldn't fix sync; the answer was that the game has no netcode, so
+the server would have to stream (lag) or need the same determinism anyway.
+
+**Where the time-boxed experiments stand (none run yet):**
+- Baseline: two replays split ~10 s into play (frame ~7680; they match through the level load).
+- Helpers (git-ignored, in out/tmp/bot/helpers/): `replay.sh <name> <secs> <cores|-> [args]`
+  replays play.inputlog headless with dumps every 120 frames; `cmp.py <dirA> <dirB>` prints the
+  first frame where two runs split; `bot_run.sh`/`sheet.py` run a bot script and make contact
+  sheets (view sheets with the Read tool; never screenshot the desktop).
+- Experiment 1 (next): pin each replay to one core (`replay.sh e1a 300 2`, `replay.sh e1b 300 3`,
+  then `python3 -I out/tmp/bot/helpers/cmp.py out/tmp/bot/e1a out/tmp/bot/e1b`) to see how much
+  thread parallelism matters.
+- Experiment 2: a guest-time audio driver. The SDL driver (SDK src/audio/sdl/sdl_audio_driver.cpp)
+  releases the game's audio semaphore from SDL's callback, so the guest audio callback
+  (AudioSystem::WorkerThreadMain, which runs guest code) is paced by the sound card. With
+  clock_frame_locked, release 48000/60/256 = 3.125 buffers per VdSwap instead
+  (rex::ui::temporal::OnGuestSwap is the hook point). The null backend can't be used: its
+  CreateDriver fails.
+- Then: cooperative scheduling of guest threads (one runs at a time, switching at blocking kernel
+  calls), the real fix, if 1+2 don't get far.
+- Other open items: real-scene profile + upscaler A/B with the recording; upscale_quality / F4
+  active-upscaler display / remove the fsr2 path; why Proton frame-locked runs differ; hands-on
+  checks for the user (Wayland, F4 Graphics API + Restart now, DLSS/DLSS 5 on an RTX card).
 
 ## Recent Completions
 - [2026-10-30 claude-code] DLSS via NGX on D3D12+Vulkan, Linux+Windows (SDK 7c31e50, main 167ea1d) #feature

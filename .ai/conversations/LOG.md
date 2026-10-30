@@ -56,3 +56,11 @@ Append-only. Newest at the bottom.
 **Files:** src/netplay/input_script.*, src/netplay/determinism.cpp, tools/bot_record.sh, tools/bot/chapter1.txt, docs/netplay.md
 **Next:** user picks streaming vs deterministic scheduling; profile + upscaler A/B with the recording.
 ---
+
+---
+## 2026-10-30 23:50 CET — claude-code #planning #handoff
+**Task:** Netplay direction (user wants lag-insensitive play, asked about a dedicated Unraid server); then hand off and shut down.
+**Outcome:** Route chosen: determinism -> delay lockstep -> rollback; Unraid as lobby/relay/clock only. Experiment helpers saved in out/tmp/bot/helpers; no experiment run yet.
+**Files:** .ai/PLAN.md, .ai/conversations/HANDOFF.md
+**Next:** experiment 1 (single-core replays), experiment 2 (guest-time audio driver), then cooperative scheduling.
+---

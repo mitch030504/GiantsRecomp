@@ -31,14 +31,14 @@
 | Netplay phase 0 determinism tools + first idle test | done | claude-code | 2026-10-30 |
 | Netplay: virtualize guest time, rerun determinism | done: clock_frame_locked; rendering repeatable, memory still diverges from boot (heap order, audio) → STOP: user picks an option in docs/netplay.md | claude-code | 2026-10-30 |
 | Bot recording (input_script + portal_bot_figure + tools/bot_record.sh) | done: ~2.5 min Chapter 1 with level load, headless | claude-code | 2026-10-30 |
-| Netplay option 3 (gameplay-state compare), chosen by the user | done: gameplay diverges ~10 s into play with identical inputs → STOP: user picks streaming (1) or deterministic scheduling (2) | claude-code | 2026-10-30 |
+| Netplay option 3 (gameplay-state compare), chosen by the user | done: gameplay diverges ~10 s into play with identical inputs | claude-code | 2026-10-30 |
+| Netplay determinism (option 2, chosen): audio paced by guest time, fixed thread order; then lockstep, then rollback | next: experiments 1-2 (see HANDOFF) | — | — |
 | Netplay phases 1–4 (ENet, input sync, portal sync, desync UI) | blocked on the determinism decision | — | — |
 
 ## Blockers
 - Netplay: guest memory diverges between identical runs from boot (heap allocation order follows
   thread scheduling; host audio writes). Needs the user's choice in docs/netplay.md.
-- Netplay: input lockstep ruled out (docs/netplay.md, "Findings in gameplay"); user decides
-  between host streaming and deterministic guest scheduling.
+- Netplay: needs a deterministic game first (chosen route); Unraid = lobby/relay only.
 - FSR 4.1.2 and XeSS ship Windows DLLs only: native Linux keeps FSR 3.1; the Windows build under
   Proton gets them (FSR 4 on Vulkan).
 - DLSS / DLSS 5 can't run here (no RTX card): fallback paths verified only.
