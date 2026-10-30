@@ -21,6 +21,7 @@ WizardStyle=modern
 [Files]
 Source: "staging\giantsrecompiled.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "staging\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "staging\amd_fidelityfx_license.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "staging\giantsrecomp_xexcheck.exe"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "settings_template.toml"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "extract-xiso.exe"; DestDir: "{tmp}"; Flags: dontcopy

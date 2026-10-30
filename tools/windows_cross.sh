@@ -27,7 +27,7 @@ case "${1:-}" in
     [[ -f "$build_dir/build.ninja" ]] || cmake --preset "$preset"
     WINEPREFIX="$PWD/out/tmp/wine-build" WINEDEBUG=-all cmake --build --preset "$preset"
     # The SDK stages its runtime DLL and the GPU plugin next to the exe, but not Tracy's.
-    cp -f thirdparty/rexglue-sdk/out/win-amd64/TracyClient.dll "$build_dir/"
+    cp --remove-destination thirdparty/rexglue-sdk/out/win-amd64/TracyClient.dll "$build_dir/"
     ;;
   run)
     shift
@@ -38,7 +38,10 @@ case "${1:-}" in
         timeout -k 5 300 "$proton_dir/proton" run wineboot -u || true
     fi
     mkdir -p out/tmp/vkd3d-cache
+    # Running Proton's wine directly skips the proton script, which is what makes Wine load
+    # vkd3d-proton and DXVK instead of its own builtin d3d12/dxgi; ask for them the same way.
     cmd=(env WINEPREFIX="$prefix/pfx" WINEDEBUG="${WINEDEBUG:--all}"
+         WINEDLLOVERRIDES="d3d12=n;d3d12core=n;dxgi=n;d3d11=n;d3d10core=n${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
          VKD3D_SHADER_CACHE_PATH="$PWD/out/tmp/vkd3d-cache"
          "$proton_dir/files/bin/wine" "$build_dir/giantsrecompiled.exe" --game_data_root=rom "$@")
     if [[ "${HEADLESS:-1}" == 1 ]]; then

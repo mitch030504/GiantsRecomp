@@ -90,15 +90,26 @@ The easiest way to change settings is to press **F4** in-game. Everything is sav
 | `resolution` | Window size when the game starts, like `"3440x1440"` or `"4k"`. |
 | `resolution_scale` | Renders at 1x to 8x before scaling down to your screen. Looks sharper but is harder on your GPU. Default is `1`. |
 | `frame_rate_limit` | Caps the FPS. `0` (the default) means no limit. |
-| `present_effect` | How the picture is scaled to your window: `"bilinear"` (default), or `"cas"` / `"fsr"` for a sharper image. With `"cas"`, `present_cas_additional_sharpness` (`0.0` to `1.0`) adds more. |
+| `temporal_upscaler` | Which upscaler `present_effect = "fsr3"` uses: `"fsr"` (default; FSR 4 on supported AMD cards in the Windows version, FSR 3.1 otherwise) or `"xess"` (Intel XeSS, Windows version only). Needs a restart. |
+| `present_effect` | How the picture is scaled to your window: `"bilinear"` (default), or `"cas"` / `"fsr"` for a sharper image. With `"cas"`, `present_cas_additional_sharpness` (`0.0` to `1.0`) adds more. `"fsr3"` is temporal upscaling from a lower render size such as `video_mode_width/height = 1920x1080` in a 4K window; see `temporal_upscaler` and [docs/upscaling.md](docs/upscaling.md). |
 | `ui_scale` | Makes the F3/F4/F6/F7 overlays bigger or smaller. Try `1.5` or higher on a big or high-res monitor. Default is `1.0`. |
 | `mnk_mode` | Keyboard and mouse controller emulation. Set to `false` if you only want to use a real controller. Default is `true`. |
 | `ultrawide_hud` | On a screen wider than 16:9, moves the HUD to the screen edges and keeps menus in proportion. Default is `true`. |
 | `skip_intro` | Skips the Activision and Toys for Bob logo movies at startup. Default is `true`. |
 | `user_data_root` | Where saves, achievements, shader cache and figures go. Leave it empty to use `Documents\giantsrecomp`. |
+| `dlss5_layer` | **Linux, NVIDIA only.** Runs the picture through DLSS5VKLayer (DLSS 5). See [DLSS 5 on Linux](#dlss-5-on-linux-nvidia-experimental). Default is `false`. |
 | `vulkan_device` | **Vulkan only.** Picks which GPU to use, by index. `-1` (the default) chooses automatically. |
 
 You can also pass any setting as a command-line flag (like `--portal_mode software`), and that overrides the settings file. The one exception is `--game_data_root` (where `rom\` lives). It can only be a flag, and it already defaults to `rom` next to the executable.
+
+### DLSS 5 on Linux (NVIDIA, experimental)
+
+On Linux with an NVIDIA GPU you can run the picture through NVIDIA's DLSS 5 neural rendering with [DLSS5VKLayer](https://github.com/bmitch87/DLSS5VKLayer). It's a separate, experimental community project (AGPL-3.0), and this game doesn't include it.
+
+1. Install DLSS5VKLayer and import `nvngx_dlssnr.dll` as its README describes, then start its helper with `dlssnr-helper start`.
+2. Turn on **F4 → GPU → `dlss5_layer`** and press **Restart now**, or start the game with `--dlss5_layer=true`.
+
+The game's log says whether the layer was found. Without it, or without an NVIDIA GPU, the game runs normally. DLSS 5 works on the finished picture, after the game's own upscaling, so leave `present_effect` at `"bilinear"` or `"fsr"` unless you want both. With the Windows build under Proton, start the game with `VKLayer_DLSS5=1` in its environment instead.
 
 ---
 
@@ -170,6 +181,7 @@ This project stands on other people's work.
 - **[ReXGlue SDK](https://github.com/rexglue/rexglue-sdk)** by Tom Clay is the recompiler and runtime everything here is built on. It comes from the [Xenia](https://xenia.jp) emulator (Ben Vanik and contributors) and is inspired by [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) by hedge-dev. It's included unmodified as a submodule and keeps its own license (`thirdparty/rexglue-sdk/LICENSE`).
 - **[Cemu](https://github.com/cemu-project/Cemu)** and **[RPCS3](https://github.com/RPCS3/rpcs3)** already emulate the Portal of Power. I read how they handle it to learn the commands, the Xbox 360 message format, and the figure layout. No code was copied, and each project has its own license.
 - **[Skylanders Ultimate NFC Pack V15](https://skylandersnfc.github.io/Skylanders-Ultimate-NFC-Pack/)** provided the figure dumps used to build the built-in Skylander name/id catalog for the figure creator and picker.
+- **[AMD FidelityFX SDK](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK)** provides FSR. Linux builds FSR 3.1 from source; the Windows version ships AMD's signed SDK 2.4 DLLs (FSR 4.1.2 and 3.1, unmodified) under AMD's license (`amd_fidelityfx_license.md` next to the game).
 - **[extract-xiso](https://github.com/XboxDev/extract-xiso)** is included (prebuilt, unmodified) in `installer/` to unpack an Xbox 360 ISO during installation. It keeps its own license (`installer/extract-xiso.LICENSE.txt`).
 - Figure save-data decoding (level, gold, nickname) builds on public reverse-engineering of the Skylanders NFC format: **[SkyReader](https://github.com/reedstrm/SkyReader)** and Marijn Kneppers' **["Reverse engineering Skylanders' Toys-to-life mechanics"](https://marijnkneppers.dev/posts/reverse-engineering-skylanders-toys-to-life-mechanics/)**.
 - Everyone who documented the Portal of Power and its figures, and made the dumping tools that let people keep their own figures.

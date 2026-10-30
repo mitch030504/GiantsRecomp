@@ -115,7 +115,7 @@ package-release: build-release
     rm -rf "$dist" && \
     mkdir -p "$dist" && \
     cp out/build/{{ triple }}-release/giantsrecompiled{{ exe_suffix }} "$dist/" && \
-    for lib in out/build/{{ triple }}-release/*.dll out/build/{{ triple }}-release/*.so out/build/{{ triple }}-release/*.dylib {{ sdk_lib_dir }}/*.so {{ sdk_lib_dir }}/*.dylib; do [ -e "$lib" ] && cp "$lib" "$dist/"; done && \
+    for lib in out/build/{{ triple }}-release/*.dll out/build/{{ triple }}-release/*.so out/build/{{ triple }}-release/*.dylib {{ sdk_lib_dir }}/*.so {{ sdk_lib_dir }}/*.dylib out/build/{{ triple }}-release/amd_fidelityfx_license.md; do [ -e "$lib" ] && cp "$lib" "$dist/"; done && \
     cp giantsrecomp.toml.example "$dist/giantsrecomp.toml" && \
     echo "Packaged to $dist/" && \
     echo "Copy that folder to the other machine, then add your own rom/ next to giantsrecompiled{{ exe_suffix }} there" && \
@@ -130,7 +130,7 @@ package-installer: build-release
     mkdir -p installer/staging && \
     cp out/build/win-amd64-release/giantsrecompiled.exe installer/staging/ && \
     cp out/build/win-amd64-release/giantsrecomp_xexcheck.exe installer/staging/ && \
-    for lib in out/build/win-amd64-release/*.dll; do [ -e "$lib" ] && cp "$lib" installer/staging/; done && \
+    for lib in out/build/win-amd64-release/*.dll out/build/win-amd64-release/amd_fidelityfx_license.md; do [ -e "$lib" ] && cp "$lib" installer/staging/; done && \
     iscc="/c/Program Files (x86)/Inno Setup 6/ISCC.exe" && \
     [ -e "$iscc" ] || iscc="$USERPROFILE/AppData/Local/Programs/Inno Setup 6/ISCC.exe" && \
     [ -e "$iscc" ] || (echo "ISCC.exe not found -- install Inno Setup 6 (winget install JRSoftware.InnoSetup)" && exit 1) && \

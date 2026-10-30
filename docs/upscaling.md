@@ -1,8 +1,15 @@
-# Temporal upscaling (FSR 3.1)
+# Temporal upscaling (FSR 3.1 / FSR 4.1.2 / XeSS)
 
-`present_effect = "fsr3"` runs AMD FidelityFX Super Resolution 3.1 when the guest output is smaller
-than the window, for example `video_mode_width/height = 1920x1080` (or 1280x720) in a 4K window.
-It's Vulkan-only for now; D3D12 still has the older spatial path.
+`present_effect = "fsr3"` runs a temporal upscaler when the guest output is smaller than the window,
+for example `video_mode_width/height = 1920x1080` (or 1280x720) in a 4K window. It works on Vulkan
+and D3D12. `temporal_upscaler` picks which one:
+
+| `temporal_upscaler` | Linux build | Windows build |
+| --- | --- | --- |
+| `fsr` (default) | FSR 3.1, built from source | AMD's FidelityFX SDK 2.4 DLLs: FSR 4.1.2 where the GPU and driver support it, FSR 3.1 otherwise |
+| `xess` | not available (Intel ships no Linux library) | Intel XeSS 3.0.2 (`libxess.dll`), on D3D12 and Vulkan |
+
+If the chosen upscaler can't start, the game logs why and uses FidelityFX.
 
 ## How it works
 
@@ -61,10 +68,30 @@ GPU load at the game's 60 fps, 4K output, from `gpu_busy_percent` (an idle deskt
 | `fsr3` 1080p->4K | 44% |
 | native 4K (`resolution_scale = 2`) | 55% |
 
+## The Windows build under Proton (RX 9070 XT, 2026-10-30)
+
+`TARGET=windows-d3d12` / `windows-vulkan tools/upscaler_ab.sh` runs the same A/B on the
+cross-compiled Windows build (`tools/windows_cross.sh`).
+
+- **Which upscaler runs:** with `gpu_backend = "vulkan"`, FidelityFX SDK 2.4 picks **FSR 4.1.2** on
+  RDNA4 under Proton. With D3D12 (vkd3d-proton) it picks FSR 3.1.6, because FSR 4 on DX12 needs the
+  AMD driver's own path. XeSS runs on both APIs (quality preset "ultra quality" for 720p->1080p).
+- **D3D12 FSR 3.1:** 36.24 dB and edge error 6.46, next to native Vulkan's 36.08 dB and 6.32.
+  The two backends match.
+- **FSR 4.1.2:** the shipped jitter sign is the best of the four by far (+1.5 to +5.8 dB), so FSR 4
+  needs no change there. Its absolute numbers swung between 36.4 dB and 42.6 dB across two runs,
+  though. Under Proton, `clock_frame_locked` doesn't make runs repeat exactly (0 of 54 native frames
+  bit-identical, against all of them on native Linux), so the reference and the upscaled run land on
+  slightly different moments. Treat the Proton numbers as rough until that's fixed.
+- Run Proton's own `wine` with vkd3d-proton and DXVK loaded (the scripts do this). Wine's builtin
+  vkd3d can't compile the render-target dump shaders, and every resolve fails.
+
 ## Limits and next steps
 
 - The title screen is a soft scene. Repeat the A/B in gameplay, which has hard static edges, once
   input replay can get there.
 - Motion vectors from block matching can't separate moving objects from the background well; the
   plan is camera and per-object motion vectors from the game (see `.ai/plans/`).
-- D3D12 doesn't have this path yet.
+- Find what still differs between frame-locked runs under Proton, so the Windows numbers become
+  exact.
+- DLSS (NGX) isn't wired in yet; DLSS 5 on Linux goes through DLSS5VKLayer instead (see the README).

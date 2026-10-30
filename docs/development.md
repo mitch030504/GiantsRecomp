@@ -82,7 +82,7 @@ With `just` installed, all of the above (both platforms) is just `just build-deb
 
 ### The Windows build, on Linux
 
-You can also cross-compile the Windows version on Linux and run it under Proton. That's how D3D12 (through vkd3d-proton) and the Windows-only upscaler SDKs get tested without a Windows PC. On top of the Linux tools above you need `lld` and `llvm` (for `lld-link`, `llvm-rc`, `llvm-mt` and `llvm-ar`), the MSVC CRT and Windows SDK unpacked with [xwin](https://github.com/Jake-Shadle/xwin) (`xwin --accept-license splat --output ~/opt/xwin`; set `XWIN_DIR` if you put it elsewhere), Wine, and Proton from Steam.
+You can also cross-compile the Windows version on Linux and run it under Proton. That's how D3D12 (through vkd3d-proton) and the Windows-only upscaler SDKs get tested without a Windows PC. On top of the Linux tools above you need `lld` and `llvm` (for `lld-link`, `llvm-rc`, `llvm-mt` and `llvm-ar`), the MSVC CRT and Windows SDK unpacked with [xwin](https://github.com/Jake-Shadle/xwin) (`xwin --accept-license splat --output ~/opt/xwin`; set `XWIN_DIR` if you put it elsewhere), and Proton from Steam to run it. The Windows build uses AMD's prebuilt FidelityFX SDK 2.4 DLLs (downloaded during configure), so it needs no Wine; Wine is only needed with `-DREXGLUE_FIDELITYFX_PREBUILT=OFF`, which builds FSR 3.1 from source.
 
 ```
 cmake --build --preset linux-amd64-release        # first: codegen runs the Linux rexglue
@@ -90,7 +90,7 @@ tools/windows_cross.sh build                      # -> out/build/win-amd64-relea
 SECONDS_TO_RUN=60 tools/windows_cross.sh run --gpu_backend=d3d12
 ```
 
-`run` uses Steam's "Proton 10.0" (`PROTON_DIR` to change it) with its own prefix in `out/tmp/proton-prefix`. It opens in a headless gamescope, so use the game's dump options (`--guest_output_dump_prefix=...`) to see frames, or `HEADLESS=0` for a normal window. Logs go to `out/build/win-amd64-release-xwin/logs/`. `just build-windows-cross` and `just play-windows-cross` do the same.
+`run` uses Steam's "Proton 10.0" (`PROTON_DIR` to change it) with its own prefix in `out/tmp/proton-prefix`, and tells Wine to load Proton's vkd3d-proton and DXVK (without that, D3D12 runs on Wine's own vkd3d, which can't compile some of the game's shaders). Under Proton on an RDNA4 card, the Vulkan backend gets FSR 4.1.2; D3D12 through vkd3d-proton gets FSR 3.1. It opens in a headless gamescope, so use the game's dump options (`--guest_output_dump_prefix=...`) to see frames, or `HEADLESS=0` for a normal window. Logs go to `out/build/win-amd64-release-xwin/logs/`. `just build-windows-cross` and `just play-windows-cross` do the same.
 
 ## For developers
 
