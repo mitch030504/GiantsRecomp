@@ -51,7 +51,7 @@ The second command converts *your* `default.xex` into C++ code on your own machi
 ### Linux (experimental)
 
 
-**1. Install the build tools.** You need clang 20 or newer (both `clang-20` and `clang++-20` on `PATH`), CMake 3.25 or newer, Ninja and Git — e.g. on Arch, `sudo pacman -S clang20 cmake ninja git`. Some distros' packages don't add the versioned `clang-20`/`clang++-20` names to `PATH` even though they install the binaries (Arch's `clang20` package is one; check where it put `clang++` and symlink `clang-20`/`clang++-20` onto it somewhere on `PATH`, such as `~/.local/bin`, if `which clang-20` comes up empty).
+**1. Install the build tools.** You need clang 20 or newer (both `clang-20` and `clang++-20` on `PATH`), CMake 3.25 or newer, Ninja and Git — e.g. on Arch, `sudo pacman -S clang20 cmake ninja git`. For the FidelityFX sharpening/upscaling (`present_effect`), also the Vulkan headers 1.3.250 or newer, `glslc` or `glslangValidator`, and Wine, which runs AMD's Windows-only shader compiler during the build — e.g. `sudo pacman -S vulkan-headers shaderc wine`. Without them the build still works, just without FidelityFX. Some distros' packages don't add the versioned `clang-20`/`clang++-20` names to `PATH` even though they install the binaries (Arch's `clang20` package is one; check where it put `clang++` and symlink `clang-20`/`clang++-20` onto it somewhere on `PATH`, such as `~/.local/bin`, if `which clang-20` comes up empty).
 
 **2. Download the code, including its libraries:**
 
