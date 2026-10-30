@@ -12,6 +12,17 @@ check whether that holds before any networking gets built.
 | `state_hash_log=<file>` | Every `state_hash_interval` reads of player 1's controller (default 300, about 5 s), appends a hash of each 1 MB of guest memory. |
 | `state_dump_address=<hex>` | At each checkpoint, also writes that 1 MB to `<state_hash_log>.<read>.bin` for a byte diff. |
 | `clock_frame_locked=true` | Deterministic guest time (SDK): one frame period per VdSwap, a fixed date, and whole virtual frames during loading stalls. |
+| `input_script=<file>` | Drives player 1 from a script of timed inputs (format in `src/netplay/input_script.h`) instead of the controller. With `input_record`, the run becomes a recording. |
+| `portal_bot_figure=<name>` | Puts a new, blank figure of that Skylander (e.g. `Spyro`) on the software portal at startup, in memory only, so scripted runs start the same way. |
+
+### Recording without a player
+
+`tools/bot_record.sh` plays the game with `tools/bot/chapter1.txt` in a headless gamescope, so it
+can run in the background. The bot goes from the title screen through a new game into Chapter 1
+(including its level load) and then walks, attacks and jumps for about 2.5 minutes. It writes
+`out/tmp/play.inputlog` and a frame every 120 guest frames to `out/tmp/bot/frames/` for checking.
+On the RX 9070 XT a run takes about 7 minutes, because the intro movie decodes slowly and the
+script skips it.
 
 Record once, replay twice, compare:
 

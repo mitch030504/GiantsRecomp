@@ -43,6 +43,7 @@ set(GIANTSRECOMP_SOURCES
     src/localization.cpp
     src/netplay/determinism.cpp
     src/netplay/input_log.cpp
+    src/netplay/input_script.cpp
 )
 
 if(WIN32)
@@ -111,6 +112,10 @@ add_test(NAME xex_check_cli_argv COMMAND xex_check_cli_argv_test)
 add_executable(giantsrecomp_input_log_test tests/input_log_test.cpp src/netplay/input_log.cpp)
 target_include_directories(giantsrecomp_input_log_test PRIVATE src)
 add_test(NAME input_log COMMAND giantsrecomp_input_log_test)
+
+add_executable(giantsrecomp_input_script_test tests/input_script_test.cpp src/netplay/input_script.cpp)
+target_include_directories(giantsrecomp_input_script_test PRIVATE src)
+add_test(NAME input_script COMMAND giantsrecomp_input_script_test)
 
 add_executable(xex_check_exit_code_test tests/xex_check_exit_code_test.cpp)
 target_include_directories(xex_check_exit_code_test PRIVATE src)
