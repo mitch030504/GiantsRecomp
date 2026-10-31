@@ -1,9 +1,9 @@
 # Agent Handoff
-Last updated: 2026-10-31 19:20 CET by claude-code
+Last updated: 2026-10-31 22:05 CET by claude-code
 
 ## Active Work
 CachyOS desktop (RX 9070 XT, RADV, 4K TV at 150%), repo at ~/Projects/GiantsRecomp.
-Last session: [sessions/2026-10-31/190505-claude-code-scheduler-step3-host-turns.md]
+Last session: [sessions/2026-10-31/220500-claude-code-deterministic-boot-interrupts.md]
 - 2026-10-31 (5): scheduler step 3 done: SDK 8562ed2 (POSIX alertable 0 ms waits) + 4153831
   (host threads on fixed turns via SetDue, idle/busy virtual frames, NoSwitchScope, adaptive
   quanta); main eb847f0 (bump + docs/netplay.md step 2/3). q1/q2: 408/491 buckets always match,
