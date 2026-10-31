@@ -36,7 +36,8 @@
 | Deterministic scheduler step 1: sleeps/timeouts in guest time (clock_frame_locked_waits) | done: pollers match per frame; split remains (heap allocation order) | claude-code | 2026-10-31 |
 | Deterministic scheduler step 2: run token, fixed handoff order (sched_deterministic) | built, full speed (SDK 00b0697, 5752e48); split 7560 -> 7920, memory still diverges ~7020 | claude-code | 2026-10-31 |
 | Deterministic scheduler step 3: host threads (GPU, vblank, audio, dispatch) on fixed turns + idle/busy virtual frames | done (SDK 4153831): 408/491 buckets match, 11 diverge for good; picture still splits ~7920 | claude-code | 2026-10-31 |
-| Determinism: find remaining divergence (0xB5F00000 from read 7110, 0xB9200000 from 7790) | next | — | — |
+| Determinism: guest-timed boot, interrupt fixes (SDK 2405954, 20dda51) | done: sync traces + pictures identical through frame 11040; 4 memory buckets split at read 8060 | claude-code | 2026-10-31 |
+| Determinism: the 4 buckets splitting at read 8060 without a sync difference | next | — | — |
 | Netplay phases 1–4 (ENet, input sync, portal sync, desync UI) | blocked on the determinism decision | — | — |
 
 ## Blockers

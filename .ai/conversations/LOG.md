@@ -109,3 +109,19 @@ Append-only. Newest at the bottom.
 **Files:** docs/netplay.md; thirdparty/rexglue-sdk; .ai/*
 **Next:** diff 0xB5F00000 / 0xB9200000 between runs to find the remaining racing writer.
 ---
+## 2026-10-31 19:25 CET — claude-code
+**Task:** Start r1/r2 dump pair for 0xB5F00000 #netplay #investigation
+**Outcome:** running in background (420 s).
+---
+## 2026-10-31 19:40 CET — claude-code
+**Task:** 0xB5F00000 diff #netplay #investigation
+**Outcome:** only 0xB5F0002C (counter 7 vs 8) differs transiently from read 7070; real split at 7800. Running sync-trace pair t1/t2.
+---
+## 2026-10-31 20:20 CET — claude-code
+**Task:** Deterministic boot + KeTimeStampBundle at frames #netplay #feature
+**Outcome:** t1/t2 traces diverged at frame 0 (host-timed boot). Boot now guest-timed, timestamp bundle updated at frames, busy frame 2^22 back-edges. Uncommitted. u1/u2 pair running.
+---
+## 2026-10-31 20:55 CET — claude-code
+**Task:** Boot determinism + interrupt deadlocks #netplay #bugfix
+**Outcome:** SDK 2405954 (guest-timed boot, KeTimeStampBundle at frames, busy frame 2^22) and 20dda51 (spinning interrupts yield with the global lock released; vblank wrap after time reset fixed). Not pushed. u1/u2 pair running.
+---
