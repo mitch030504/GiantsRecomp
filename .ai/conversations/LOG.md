@@ -74,3 +74,9 @@ Append-only. Newest at the bottom.
 **Files:** SDK audio_system, sdl_audio_driver, xboxkrnl_video, xobject, xthread, xtimer, xsemaphore; docs/netplay.md; .ai/*
 **Next:** scheduler step 1 (guest-time sleeps/timeouts), verify with sync_frames.py.
 ---
+## 2026-10-31 07:59 CET — claude-code
+**Task:** Commit previous work; scheduler step 1 (guest-time sleeps/timeouts); find first diverging memory.
+**Outcome:** clock_frame_locked_waits (SDK aaa81e0) makes pollers match per frame; split remains. Windowed state hashes: first gameplay divergence at read 7050 = heap allocation order between threads. Step 2 designed (decision record).
+**Files:** SDK clock, xobject, xthread; src/netplay/determinism.cpp; docs/netplay.md; .ai/*
+**Next:** step 2, run token.
+---

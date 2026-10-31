@@ -33,8 +33,9 @@
 | Bot recording (input_script + portal_bot_figure + tools/bot_record.sh) | done: ~2.5 min Chapter 1 with level load, headless | claude-code | 2026-10-30 |
 | Netplay option 3 (gameplay-state compare), chosen by the user | done: gameplay diverges ~10 s into play with identical inputs | claude-code | 2026-10-30 |
 | Netplay determinism exp. 1-2 (single core, audio_guest_paced) + sync_trace_log | done: neither fixes it; causes = host-timed sleeps/timeouts + lock races (docs/netplay.md) | claude-code | 2026-10-31 |
-| Deterministic scheduler step 1: sleeps/timeouts in guest time | next | — | — |
-| Deterministic scheduler steps 2-3: one thread at a time, host events at fixed points | pending | — | — |
+| Deterministic scheduler step 1: sleeps/timeouts in guest time (clock_frame_locked_waits) | done: pollers match per frame; split remains (heap allocation order) | claude-code | 2026-10-31 |
+| Deterministic scheduler step 2: run token, fixed handoff order | next (design in decisions/2026-10-31-deterministic-guest-scheduling.md) | — | — |
+| Deterministic scheduler step 3: host events (GPU interrupts, I/O, notify) at fixed guest points | pending | — | — |
 | Netplay phases 1–4 (ENet, input sync, portal sync, desync UI) | blocked on the determinism decision | — | — |
 
 ## Blockers

@@ -1,12 +1,14 @@
 # Agent Handoff
-Last updated: 2026-10-31 07:16 CET by claude-code
+Last updated: 2026-10-31 07:59 CET by claude-code
 
 ## Active Work
 CachyOS desktop (RX 9070 XT, RADV, 4K TV at 150%), repo at ~/Projects/GiantsRecomp.
-Last session: [sessions/2026-10-31/071614-claude-code-netplay-determinism-experiments.md]
-- 2026-10-31: experiments 1-2 done (single core invalid; audio_guest_paced didn't fix the split at
-  ~7560). New SDK `sync_trace_log` shows host-timed sleeps/timeouts and lock races as the causes.
-  SDK changes staged but NOT committed; docs/netplay.md updated, not committed.
+Last session: [sessions/2026-10-31/075935-claude-code-guest-time-waits-heap-order.md]
+- 2026-10-31 (2): scheduler step 1 done (clock_frame_locked_waits, SDK aaa81e0): pollers match per
+  frame. Still splits ~7560: first diverging memory = heap allocation order between threads.
+  Design for step 2 in decisions/2026-10-31-deterministic-guest-scheduling.md.
+- 2026-10-31 (1): experiments 1-2 done (single core invalid; audio_guest_paced didn't fix the split).
+  `sync_trace_log` showed host-timed sleeps/timeouts and lock races. All committed (not pushed).
 - F4 → GPU → gpu_backend switches D3D12/Vulkan (Windows has both; Linux Vulkan only; D3D12 on
   Linux = the Windows build under Proton). temporal_upscaler = fsr | xess | dlss.
 - The Windows build cross-compiles here (`tools/windows_cross.sh build`, needs the native release
@@ -17,8 +19,8 @@ Last session: [sessions/2026-10-31/071614-claude-code-netplay-determinism-experi
   needs determinism first. Decision made: determinism route (see Next Up).
 - Gameplay recordings are automated: `tools/bot_record.sh` (headless, ~7 min) writes
   out/tmp/play.inputlog; replay with --portal_bot_figure=Spyro --clock_frame_locked=true.
-- Pushed: SDK up to 7c31e50, main up to 69e4baf. Not pushed: main 33bc5e8..HEAD (bot, netplay
-  result, handoff). Ask before pushing.
+- Pushed: SDK up to 7c31e50, main up to 69e4baf. Not pushed: SDK f4c49d5, aaa81e0; main 33bc5e8..HEAD.
+  Ask before pushing.
 
 ## Next Up
 The user chose the **determinism route** ("whatever you think is best"): they want netplay that
@@ -34,18 +36,21 @@ shared clock. It does NOT run the game (no netcode in the game; the iGPU is too 
 asked why a dedicated server wouldn't fix sync; the answer was that the game has no netcode, so
 the server would have to stream (lag) or need the same determinism anyway.
 
-**Where it stands (2026-10-31):** experiments 1-2 done, see docs/netplay.md "Where the
-divergence comes from". Next: scheduler step 1, sleeps and wait timeouts in guest time under
-clock_frame_locked (XObject::Wait*/XThread::Delay use ScaleGuestDurationMillis of host ms now).
-Verify: `replay.sh <name> 900 - --audio_guest_paced=true --sync_trace_log=out/tmp/bot/<name>.sync`
-twice, then `python3 -I out/tmp/bot/helpers/sync_frames.py a.sync b.sync 6000 7700` (threads 7-11
-per-frame counts should match) and `cmp.py` for the frame split. Then step 2 (one guest thread at a
-time, fixed handoff order), step 3 (host events at fixed guest points).
+**Where it stands (2026-10-31 07:59):** step 1 (guest-time timeouts) done and committed. Next is
+step 2, the run token: one guest thread at a time, handed on in thread-id order at blocking kernel
+calls; host threads running guest code (audio worker, GPU interrupts, APCs) take it too; spin hints
+(db16cyc/cctpl) become yield points. Design + risks: decisions/2026-10-31-deterministic-guest-scheduling.md.
+Verify each step with two replays (`replay.sh <n> 600 - --audio_guest_paced=true
+--sync_trace_log=out/tmp/bot/<n>.sync`), then sync_frames.py, cmp.py, and for memory
+`--state_hash_log=... --state_hash_interval=10 --state_hash_start=7000` + hash_onset.py
+(delete old .hash files first; the log appends).
 - Other open items: real-scene profile + upscaler A/B with the recording; upscale_quality / F4
   active-upscaler display / remove the fsr2 path; why Proton frame-locked runs differ; hands-on
   checks for the user (Wayland, F4 Graphics API + Restart now, DLSS/DLSS 5 on an RTX card).
 
 ## Recent Completions
+- [2026-10-31 claude-code] clock_frame_locked_waits: guest-time sleeps/timeouts (SDK aaa81e0, main 97fb72d) #feature
+- [2026-10-31 claude-code] Heap allocation order found as first gameplay divergence (32133d4) #investigation
 - [2026-10-31 claude-code] audio_guest_paced + sync_trace_log (SDK, staged); divergence causes found #investigation
 - [2026-10-30 claude-code] DLSS via NGX on D3D12+Vulkan, Linux+Windows (SDK 7c31e50, main 167ea1d) #feature
 - [2026-10-30 claude-code] XeSS 3.0.2 on D3D12+Vulkan (SDK 7752196) #feature
