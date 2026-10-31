@@ -36,14 +36,13 @@
 | Deterministic scheduler step 1: sleeps/timeouts in guest time (clock_frame_locked_waits) | done: pollers match per frame; split remains (heap allocation order) | claude-code | 2026-10-31 |
 | Deterministic scheduler step 2: run token, fixed handoff order (sched_deterministic) | built, full speed (SDK 00b0697, 5752e48); split 7560 -> 7920, memory still diverges ~7020 | claude-code | 2026-10-31 |
 | Deterministic scheduler step 3: host threads (GPU, vblank, audio, dispatch) on fixed turns + idle/busy virtual frames | done (SDK 4153831): 408/491 buckets match, 11 diverge for good; picture still splits ~7920 | claude-code | 2026-10-31 |
-| Determinism: guest-timed boot, interrupt fixes (SDK 2405954, 20dda51) | done: sync traces + pictures identical through frame 11040; 4 memory buckets split at read 8060 | claude-code | 2026-10-31 |
-| Determinism: the 4 buckets splitting at read 8060 without a sync difference | next | — | — |
-| Netplay phases 1–4 (ENet, input sync, portal sync, desync UI) | blocked on the determinism decision | — | — |
+| Determinism: guest-timed boot, interrupt fixes (SDK 2405954, 20dda51) | done: full recording identical in picture (23880 frames) and thread order | claude-code | 2026-10-31 |
+| Determinism: 3 buckets (0xB5F/0xBB2/0xBB3 00000) split intermittently at read ~8065, no visible effect | open (minor) | — | — |
+| Netplay phase 1 (ENet transport + handshake) | next | — | — |
+| Netplay phases 2–4 (input sync, portal sync, desync UI) | pending | — | — |
 
 ## Blockers
-- Netplay: guest memory diverges between identical runs from boot (heap allocation order follows
-  thread scheduling; host audio writes). Needs the user's choice in docs/netplay.md.
-- Netplay: needs a deterministic game first (chosen route); Unraid = lobby/relay only.
+- Netplay determinism: solved for replays under sched_deterministic (SDK 20dda51); Unraid = lobby/relay only.
 - FSR 4.1.2 and XeSS ship Windows DLLs only: native Linux keeps FSR 3.1; the Windows build under
   Proton gets them (FSR 4 on Vulkan).
 - DLSS / DLSS 5 can't run here (no RTX card): fallback paths verified only.

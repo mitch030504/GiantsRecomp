@@ -203,3 +203,10 @@ identical pictures through frame 11040, about a minute of Chapter 1 play after t
 (frames before ~8000 dump black in every run). 477 of 491 1 MB buckets match throughout; 4 split
 once at read 8060 with no difference in thread order, so something outside the scheduler writes
 them. That is the next thing to find.
+
+Over the whole recording (`w1`/`w2`, 560 s): identical pictures through frame 23880, past the end
+of the recording at read 21897. Three buckets (`0xB5F00000`, `0xBB200000`, `0xBB300000`) split
+once around read 8065, when the level starts, in some pairs and not in others, and stay different
+without any visible effect. Everything else that differs is host data: kernel objects
+(`0x30000000`-`0x301FFFFF`, host pointers) and thread stacks (`0x70000000`-`0x705FFFFF`, leftovers
+below the stack pointer). A desync check for netplay should skip those ranges.

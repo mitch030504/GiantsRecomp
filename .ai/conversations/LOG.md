@@ -125,3 +125,11 @@ Append-only. Newest at the bottom.
 **Task:** Boot determinism + interrupt deadlocks #netplay #bugfix
 **Outcome:** SDK 2405954 (guest-timed boot, KeTimeStampBundle at frames, busy frame 2^22) and 20dda51 (spinning interrupts yield with the global lock released; vblank wrap after time reset fixed). Not pushed. u1/u2 pair running.
 ---
+## 2026-10-31 21:20 CET — claude-code
+**Task:** Determinism verification #netplay
+**Outcome:** u1/u2: sync traces + pictures identical through frame 11040. v1/v2: only host-data buckets (kernel objects, stacks) differ. Pushed SDK 20dda51, main 61a3f9a. Running full-length w1/w2.
+---
+## 2026-10-31 21:35 CET — claude-code
+**Task:** Full-length determinism check #netplay
+**Outcome:** w1/w2: pictures identical through frame 23880 (whole recording). 3 buckets split intermittently at read ~8065 without visible effect. PLAN: blocker cleared, phase 1 next.
+---

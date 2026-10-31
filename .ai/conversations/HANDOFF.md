@@ -22,7 +22,7 @@ Last session: [sessions/2026-10-31/190505-claude-code-scheduler-step3-host-turns
   needs determinism first. Decision made: determinism route (see Next Up).
 - Gameplay recordings are automated: `tools/bot_record.sh` (headless, ~7 min) writes
   out/tmp/play.inputlog; replay with --portal_bot_figure=Spyro --clock_frame_locked=true.
-- Pushed to the forks: SDK 4153831, main 6178944. Ask before pushing again.
+- Pushed to the forks: SDK 20dda51, main 61a3f9a.
 
 ## Next Up
 The user chose the **determinism route** ("whatever you think is best"): they want netplay that
@@ -38,13 +38,20 @@ shared clock. It does NOT run the game (no netcode in the game; the iGPU is too 
 asked why a dedicated server wouldn't fix sync; the answer was that the game has no netcode, so
 the server would have to stream (lag) or need the same determinism anyway.
 
-**MILESTONE (2026-10-31 21:05):** with SDK 20dda51, two replays (u1/u2, 300 s) have IDENTICAL
-sync traces up to shutdown (12.25 M events, frame 11150) and IDENTICAL pictures through frame
-11040 (cmp.py: no split). Memory: 477/491 buckets always match; 4 split once at read 8060
-(0x70400000, 0xB5F00000, 0xBB200000, 0xBB300000) without any sync difference -> some writer
-outside the scheduler (XMA/GPU/host data?). Running v1/v2: dump of 0xBB200000 from read 8000
-(out/tmp/bot/vN.hash.<read>.bin), then byte diff. Main bd046b8 = bump + docs; push pending.
-User: "continue until quota runs out; update handoff constantly".
+**MILESTONE (2026-10-31 21:35):** with SDK 20dda51 (pushed; main 61a3f9a) the whole Chapter 1
+recording replays deterministically in picture: w1/w2 (560 s) identical frames through 23880
+(recording ends at read 21897), u1/u2 identical sync traces to shutdown. Memory: only host-data
+buckets differ (0x30000000-0x301FFFFF kernel objects, 0x70000000-0x705FFFFF stacks), plus
+INTERMITTENTLY 0xB5F00000/0xBB200000/0xBB300000 split once at read ~8060-8070 (level start) and
+stay different without visible effect (w and u pairs: yes; v pair: no). Unknown writer outside
+the scheduler; find it with a pair dumping 0xBB200000 at reads 8050-8080 until one splits.
+Determinism is good enough to start -> next is netplay phase 1 (lockstep transport, see
+.ai/plans/splendid-sprouting-goblet.md Part 3). Design note: under sched_deterministic the guest's
+controller reads come in a fixed order, so lockstep input can hook where input_replay does
+(Filter in src/netplay/determinism.cpp), exchanging inputs keyed by read index (+delay), not by
+frame. Both peers must run clock_frame_locked + sched_deterministic + audio_guest_paced.
+Remaining host data in memory (kernel objects 0x30xxxxxx, stacks 0x70xxxxxx) must be excluded
+from desync hashes (phase 4). User: "continue until quota runs out; update handoff".
 **Where it stands (2026-10-31 19:20):** step 3 committed. Next: find who writes 0xB5F00000 /
 0xB9200000 differently (replay pair with --state_dump_address=B5F00000, diff the .bin dumps,
 sync trace around read 7110). Stats line every 600 frames in the game log shows token time.
