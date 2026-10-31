@@ -137,3 +137,7 @@ Append-only. Newest at the bottom.
 **Task:** Intermittent 3-bucket split #netplay #investigation
 **Outcome:** x1/x2 caught it: 10 words of leftover bytes (ASCII path fragments vs binary) at 0xBB239C50/0xBB27BB14. Added debug_guest_watch (SDK); y1/y2 didn't split. Cause open, low priority (pictures identical).
 ---
+## 2026-10-31 22:10 CET — claude-code
+**Task:** Start netplay phase 1 #netplay
+**Outcome:** Blocked: adding ENet as a submodule was refused by auto mode; needs user approval. No partial state.
+---

@@ -25,6 +25,11 @@ Last session: [sessions/2026-10-31/220500-claude-code-deterministic-boot-interru
 - Pushed to the forks: SDK 48aa917, main (latest docs: handoff commit).
 
 ## Next Up
+**BLOCKED ON USER (2026-10-31 22:10):** netplay phase 1 needs ENet added as a submodule
+(`git submodule add https://github.com/lsalzman/enet.git thirdparty/enet`, pin v1.3.18). Auto
+mode refused it (third-party code); ask the user to approve or add it themselves. Nothing was
+left half-added.
+
 The user chose the **determinism route** ("whatever you think is best"): they want netplay that
 is as insensitive to lag as possible. The plan agreed in chat:
 1. Make the game deterministic (option 2): fixed guest thread order, and audio and timers paced by
