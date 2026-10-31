@@ -15,6 +15,7 @@
 #include <rex/logging.h>
 #include <rex/memory.h>
 #include <rex/system/kernel_state.h>
+#include <rex/system/xobject.h>
 #include <rex/ui/temporal_jitter.h>
 
 #include "netplay/input_log.h"
@@ -166,6 +167,9 @@ X_RESULT Filter(ReadKind kind, uint32_t user_index, X_RESULT result, T* value) {
   const uint8_t user = uint8_t(user_index);
   std::lock_guard lock(g_tools->mutex);
   const uint32_t index = g_tools->counter.Next(kind, user);
+  if (rex::system::XObject::SyncTraceEnabled()) {
+    rex::system::XObject::TraceSync("I", fmt::format("{} {} {}", int(kind), user, index), result);
+  }
 
   if constexpr (std::is_same_v<T, X_INPUT_STATE>) {
     if (g_tools->script && user == 0) {
