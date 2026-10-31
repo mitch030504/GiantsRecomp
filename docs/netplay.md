@@ -182,3 +182,24 @@ still splits around frame 7920, but the difference after it is smaller. Gameplay
 loading is slower than without the scheduler (frame 4000 instead of 5300 after 100 s), because the
 loader runs alone. Next: diff `0xB5F00000` byte by byte (`state_dump_address=B5F00000`) to find
 the thread that writes it.
+
+### Boot and interrupts (2026-10-31)
+
+A sync trace of both runs (`sync_trace_log`) showed them differing already at frame 0: before the
+first frame guest time still followed the host clock, so boot poll loops with 1 ms timeouts ran a
+different number of times. Under `sched_deterministic` (SDK) boot is now guest-timed too: time
+starts at zero and moves only by virtual frames, and `KeTimeStampBundle` (the tick count) is
+updated where guest time moves instead of by a 1 ms host timer. Boot got faster as a side effect,
+because waits are skipped instead of sat out (frame 6700 after 120 s, against 5300 without the
+scheduler).
+
+Two deadlocks came with it, both fixed: the vblank thread could read the tick count before the
+reset and then deliver vblanks without end, and an interrupt handler spinning on a spinlock the
+interrupted thread held never gave up the token (it now yields with the interrupt's global lock
+released meanwhile).
+
+Result: two replays have identical sync traces up to shutdown (12.25 M events, frame 11150) and
+identical pictures through frame 11040, about a minute of Chapter 1 play after the picture starts
+(frames before ~8000 dump black in every run). 477 of 491 1 MB buckets match throughout; 4 split
+once at read 8060 with no difference in thread order, so something outside the scheduler writes
+them. That is the next thing to find.
