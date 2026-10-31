@@ -210,3 +210,10 @@ once around read 8065, when the level starts, in some pairs and not in others, a
 without any visible effect. Everything else that differs is host data: kernel objects
 (`0x30000000`-`0x301FFFFF`, host pointers) and thread stacks (`0x70000000`-`0x705FFFFF`, leftovers
 below the stack pointer). A desync check for netplay should skip those ranges.
+
+The split is rare and not tied to thread order: a byte diff of `0xBB200000` (pair `x1`/`x2`) found
+10 words at `0xBB239C50` and `0xBB27BB14` holding ASCII path fragments in one run and small binary
+values in the other, which looks like leftover bytes in reused memory, possibly host data a kernel
+call copied into a guest buffer. `debug_guest_watch=<hex address>` (SDK) logs every change of a
+guest word across kernel export calls, with the caller's guest address, to find the writer; the
+pair it ran on didn't split.

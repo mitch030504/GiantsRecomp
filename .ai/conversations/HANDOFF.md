@@ -44,7 +44,16 @@ recording replays deterministically in picture: w1/w2 (560 s) identical frames t
 buckets differ (0x30000000-0x301FFFFF kernel objects, 0x70000000-0x705FFFFF stacks), plus
 INTERMITTENTLY 0xB5F00000/0xBB200000/0xBB300000 split once at read ~8060-8070 (level start) and
 stay different without visible effect (w and u pairs: yes; v pair: no). Unknown writer outside
-the scheduler; find it with a pair dumping 0xBB200000 at reads 8050-8080 until one splits.
+the scheduler. x1/x2 caught it (21:50): at read 8060, 10 words differ in 0xBB200000 (runs at
+0xBB239C50 x6, 0xBB27BB14, 0xBB27BB24 x3): ASCII path fragments ("s/ved/", "aine x/m") in one
+run, small binary values in the other. Guest memory is MAP_SHARED shm, so decommit keeps content
+(not MADV_FREE-style). Likely a kernel export copying a host struct with uninitialized bytes
+(host stack garbage) into a guest buffer. Next: a debug watch (check a guest word after every
+kernel export call, log the export that changed it) on 0xBB239C50 around read 8050-8060.
+Tool committed: cvar debug_guest_watch=<hex> (SDK, see git log). y1/y2 with it on 0xBB239C50:
+the split didn't happen; watch sequences identical (239 changes) until shutdown. Splits seen in
+u, w, x pairs, not in v, y: intermittent, cause unknown. Extra idle virtual frames in some logs
+are all after 'Window closing' (shutdown), harmless. Low priority: pictures stay identical.
 Determinism is good enough to start -> next is netplay phase 1 (lockstep transport, see
 .ai/plans/splendid-sprouting-goblet.md Part 3). Design note: under sched_deterministic the guest's
 controller reads come in a fixed order, so lockstep input can hook where input_replay does

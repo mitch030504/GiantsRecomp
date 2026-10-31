@@ -133,3 +133,7 @@ Append-only. Newest at the bottom.
 **Task:** Full-length determinism check #netplay
 **Outcome:** w1/w2: pictures identical through frame 23880 (whole recording). 3 buckets split intermittently at read ~8065 without visible effect. PLAN: blocker cleared, phase 1 next.
 ---
+## 2026-10-31 22:00 CET — claude-code
+**Task:** Intermittent 3-bucket split #netplay #investigation
+**Outcome:** x1/x2 caught it: 10 words of leftover bytes (ASCII path fragments vs binary) at 0xBB239C50/0xBB27BB14. Added debug_guest_watch (SDK); y1/y2 didn't split. Cause open, low priority (pictures identical).
+---
