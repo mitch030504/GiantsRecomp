@@ -34,8 +34,9 @@
 | Netplay option 3 (gameplay-state compare), chosen by the user | done: gameplay diverges ~10 s into play with identical inputs | claude-code | 2026-10-30 |
 | Netplay determinism exp. 1-2 (single core, audio_guest_paced) + sync_trace_log | done: neither fixes it; causes = host-timed sleeps/timeouts + lock races (docs/netplay.md) | claude-code | 2026-10-31 |
 | Deterministic scheduler step 1: sleeps/timeouts in guest time (clock_frame_locked_waits) | done: pollers match per frame; split remains (heap allocation order) | claude-code | 2026-10-31 |
-| Deterministic scheduler step 2: run token, fixed handoff order (sched_deterministic) | built, full speed (SDK 00b0697); determinism result pending (k1/k2 run) | claude-code | 2026-10-31 |
-| Deterministic scheduler step 3: host events (GPU interrupts, I/O, notify) at fixed guest points | pending | — | — |
+| Deterministic scheduler step 2: run token, fixed handoff order (sched_deterministic) | built, full speed (SDK 00b0697, 5752e48); split 7560 -> 7920, memory still diverges ~7020 | claude-code | 2026-10-31 |
+| Deterministic scheduler step 3: host threads (GPU, vblank, audio, dispatch) on fixed turns + idle/busy virtual frames | done (SDK 4153831): 408/491 buckets match, 11 diverge for good; picture still splits ~7920 | claude-code | 2026-10-31 |
+| Determinism: find remaining divergence (0xB5F00000 from read 7110, 0xB9200000 from 7790) | next | — | — |
 | Netplay phases 1–4 (ENet, input sync, portal sync, desync UI) | blocked on the determinism decision | — | — |
 
 ## Blockers

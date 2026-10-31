@@ -86,3 +86,26 @@ Append-only. Newest at the bottom.
 **Files:** SDK guest_scheduler.*, xobject/xthread/xevent/xmutant/xsemaphore, threading_*, codegen builders + pch template; .ai/*
 **Next:** read k1/k2 result, commit bump + docs, then step 3 (host events at fixed guest points).
 ---
+## 2026-10-31 18:18 CET — claude-code
+**Task:** Status review for the user (what's done, where we left off, what's next).
+**Outcome:** Found an unrecorded session: SDK 5752e48 (clock_frame_locked_stall_ms) + replays m1/m2. Step 2 moves the pixel split 7560 -> 7920; memory still diverges from read ~7020. No code changes.
+**Files:** .ai/* only
+**Next:** commit SDK bump + netplay doc, then scheduler step 3.
+---
+## 2026-10-31 19:05 CET — claude-code (interim)
+**Task:** Scheduler step 3: host threads (GPU commands, vblank, audio, XMA, kernel dispatch) on fixed turns; idle/busy virtual frames.
+**Outcome:** Built (SDK uncommitted), runs at 60 fps in play. Two-replay test q1/q2 running (out/tmp/bot). Kernel dispatch change written but not built yet (binary in use).
+**Next:** read q1/q2 (cmp.py, hash_onset.py), build, commit SDK + bump + docs.
+---
+## 2026-10-31 19:05 CET — claude-code
+**Task:** Scheduler step 3 #feature #netplay #bugfix (handoff write-back via /agent-handoff)
+**Outcome:** GPU commands, vblank, audio callback, kernel dispatch on fixed turns (SetDue); idle/busy virtual frames instead of the host-timed stall fallback; NoSwitchScope for interrupts; adaptive quanta; POSIX alertable 0 ms wait fix. 60 fps in play. SDK uncommitted; dispatch part unbuilt; q1/q2 replay pair still running.
+**Files:** SDK clock, guest_scheduler, command_processor, graphics_system, audio_system, xma_decoder, kernel_state, threading_posix, function_dispatcher, xboxkrnl_video, xthread.h; docs/netplay.md; .ai/*
+**Next:** read q1/q2, build, commit SDK + bump + docs, push (approved).
+---
+## 2026-10-31 19:20 CET — claude-code
+**Task:** Read q1/q2, commit + push step 3 #netplay #feature
+**Outcome:** 408/491 buckets always match (135 before), 11 diverge for good (315); picture split still ~7920. Committed SDK 8562ed2 + 4153831, main eb847f0 (bump + docs/netplay.md).
+**Files:** docs/netplay.md; thirdparty/rexglue-sdk; .ai/*
+**Next:** diff 0xB5F00000 / 0xB9200000 between runs to find the remaining racing writer.
+---

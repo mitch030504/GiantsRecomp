@@ -1,17 +1,17 @@
 # Agent Handoff
-Last updated: 2026-10-31 08:49 CET by claude-code
+Last updated: 2026-10-31 19:20 CET by claude-code
 
 ## Active Work
 CachyOS desktop (RX 9070 XT, RADV, 4K TV at 150%), repo at ~/Projects/GiantsRecomp.
-Last session: [sessions/2026-10-31/084941-claude-code-deterministic-scheduler.md]
-- 2026-10-31 (3): step 2 built: `sched_deterministic` (SDK 00b0697, committed, NOT pushed; main
-  repo bump NOT committed). Runs at full speed (frame 5160 in 90 s). A two-replay determinism test
-  (k1/k2, see session file) was still running at handoff: read its result first.
-- 2026-10-31 (2): scheduler step 1 done (clock_frame_locked_waits, SDK aaa81e0): pollers match per
-  frame. Still splits ~7560: first diverging memory = heap allocation order between threads.
-  Design for step 2 in decisions/2026-10-31-deterministic-guest-scheduling.md.
-- 2026-10-31 (1): experiments 1-2 done (single core invalid; audio_guest_paced didn't fix the split).
-  `sync_trace_log` showed host-timed sleeps/timeouts and lock races. All committed (not pushed).
+Last session: [sessions/2026-10-31/190505-claude-code-scheduler-step3-host-turns.md]
+- 2026-10-31 (5): scheduler step 3 done: SDK 8562ed2 (POSIX alertable 0 ms waits) + 4153831
+  (host threads on fixed turns via SetDue, idle/busy virtual frames, NoSwitchScope, adaptive
+  quanta); main eb847f0 (bump + docs/netplay.md step 2/3). q1/q2: 408/491 buckets always match,
+  11 diverge for good (first b9200000 @7790; b5f00000 flips from 7110); picture splits ~7920.
+  Stale PID 23867 (my deadlocked p0 run) may still be alive: ask the user to kill it.
+- 2026-10-31 (1-4): sync trace found host-timed sleeps + lock races; step 1 clock_frame_locked_waits
+  (SDK aaa81e0); step 2 sched_deterministic (SDK 00b0697) + clock_frame_locked_stall_ms (5752e48):
+  split 7560 -> 7920, memory differs from read ~7020 (m1/m2). Details in the session files.
 - F4 → GPU → gpu_backend switches D3D12/Vulkan (Windows has both; Linux Vulkan only; D3D12 on
   Linux = the Windows build under Proton). temporal_upscaler = fsr | xess | dlss.
 - The Windows build cross-compiles here (`tools/windows_cross.sh build`, needs the native release
@@ -22,7 +22,7 @@ Last session: [sessions/2026-10-31/084941-claude-code-deterministic-scheduler.md
   needs determinism first. Decision made: determinism route (see Next Up).
 - Gameplay recordings are automated: `tools/bot_record.sh` (headless, ~7 min) writes
   out/tmp/play.inputlog; replay with --portal_bot_figure=Spyro --clock_frame_locked=true.
-- Pushed: SDK up to 7c31e50, main up to 69e4baf. Not pushed: SDK 00b0697; main repo bump for it not committed.
+- Pushed: SDK up to 7c31e50, main up to 69e4baf. Pushed through SDK 4153831 / main (this commit) if the push below succeeded.
   Ask before pushing.
 
 ## Next Up
@@ -39,7 +39,10 @@ shared clock. It does NOT run the game (no netcode in the game; the iGPU is too 
 asked why a dedicated server wouldn't fix sync; the answer was that the game has no netcode, so
 the server would have to stream (lag) or need the same determinism anyway.
 
-**Where it stands (2026-10-31 08:49):** steps 1-2 built. Step 2 = GuestScheduler run token
+**Where it stands (2026-10-31 19:20):** step 3 committed. Next: find who writes 0xB5F00000 /
+0xB9200000 differently (replay pair with --state_dump_address=B5F00000, diff the .bin dumps,
+sync trace around read 7110). Stats line every 600 frames in the game log shows token time.
+**Earlier (2026-10-31 08:49):** steps 1-2 built. Step 2 = GuestScheduler run token
 (SDK src/system/guest_scheduler.cpp) + codegen REX_LOOP_BACKEDGE() preemption (needs a codegen
 rerun: `cmake --build out/build/linux-amd64-release --target giantsrecomp_codegen`, then build).
 Test with `replay.sh <n> 600 - --audio_guest_paced=true --sched_deterministic=true` twice, then
@@ -52,6 +55,7 @@ Step 3 next: GPU interrupts and host completions at fixed guest points.
   checks for the user (Wayland, F4 Graphics API + Restart now, DLSS/DLSS 5 on an RTX card).
 
 ## Recent Completions
+- [2026-10-31 claude-code] Scheduler step 3: host threads on fixed turns, virtual frames by guest state (SDK 8562ed2, 4153831; main eb847f0) #feature
 - [2026-10-31 claude-code] sched_deterministic run token + loop back-edge preemption (SDK 00b0697) #feature
 - [2026-10-31 claude-code] clock_frame_locked_waits: guest-time sleeps/timeouts (SDK aaa81e0, main 97fb72d) #feature
 - [2026-10-31 claude-code] Heap allocation order found as first gameplay divergence (32133d4) #investigation
@@ -72,7 +76,6 @@ Step 3 next: GPU interrupts and host completions at fixed guest points.
 - [2026-10-30 claude-code] Wayland blank window: stop dlopen'ing RenderDoc (SDK a73acce) #bugfix
 - [2026-10-30 claude-code] Netplay phase 0: input record/replay, state hashes, compare tool (65ddff2) #feature
 - [2026-10-30 claude-code] Linux tarball + linux-setup.sh + udev rule (89987f8) #feature
-- [2026-10-30 claude-code] Linux links again + FidelityFX builds on Arch (SDK 3928a28, f825115) #bugfix
 
 ## Pending Decisions
 - `.gitmodules` points the SDK at the fork (mitch030504/rexglue-sdk) on this branch; switch it back
