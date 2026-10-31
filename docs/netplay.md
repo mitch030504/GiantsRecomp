@@ -137,3 +137,48 @@ pointers to an object at 0xBA66A0E4 in one run and 0xBA66A10C in the other. The 
 landed at a different address, so two threads allocated from the game's own heap (it uses no
 XMemAlloc/RtlAllocateHeap) in a different order. That is what step 2, one guest thread at a time in
 a fixed order, has to fix.
+
+### Step 2 result (2026-10-31)
+
+`sched_deterministic=true` (SDK, needs `clock_frame_locked`) runs one guest thread at a time. A
+thread gives up the run token where it blocks (a wait that isn't satisfied, a sleep, a yield) and
+also after a fixed amount of guest work: every 16 sync operations and every 1024 loop back-edges
+(the recompiler emits `REX_LOOP_BACKEDGE()` before backward branches, so rerun codegen after an
+SDK update). The next holder is the first thread after it, in creation order, that can continue.
+Getting through boot needed four deadlock fixes, listed in
+`.ai/conversations/sessions/2026-10-31/084941-claude-code-deterministic-scheduler.md`.
+
+It runs at full speed, but two replays still split, at frame 7920 instead of ~7560, and memory
+differs from read ~7020. Host time still got in three ways:
+- Host threads ran guest code or wrote guest memory whenever they woke up: the GPU command
+  processor (read pointer writeback, fences, interrupts), the vblank thread, the audio callback and
+  the XMA decoder. GPU interrupts even ran outside the token, next to the token holder.
+- When every thread waited on a timeout, guest time only moved through the clock's stall fallback
+  (virtual frames after `clock_frame_locked_stall_ms` of host time). One run got 5 of those
+  3-second stalls, the other 4.
+- The comparison itself: hashing guest memory between frames pauses the game, which the stall
+  fallback could count as a virtual frame. `clock_frame_locked_stall_ms` (SDK) raises the
+  threshold.
+
+### Step 3 result (2026-10-31)
+
+Under `sched_deterministic` (SDK), host threads that touch guest state now take their turn at a
+point fixed by guest state, holding the run token: the GPU command processor once commands are
+written (so read pointer writebacks, fences and interrupts land at the same guest instruction),
+vblank once guest time passes the next vblank, the audio callback once a buffer is released at a
+guest frame, and the kernel dispatch thread once a deferred completion is queued. The XMA worker
+stays idle, because a kick already decodes on the guest thread. When nobody can run, guest time
+advances by a virtual frame at once instead of after host time; the host-timed stall fallback is
+off under the scheduler.
+
+A stats line every 600 frames in the game log (`sched_deterministic: 600 frames in ...`) shows
+how long each thread held the token and how many turns it got. `perf` can't attach to the game
+under gamescope, so this is the profiler.
+
+Two replays (`q1`/`q2`, hashes every 10 reads from 7000 to 15570): 408 of 491 1 MB buckets match
+throughout (135 after step 2) and 11 diverge for good (315 after step 2). The first permanent
+divergence is at read 7790 (`0xB9200000`); `0xB5F00000` flips from read 7110 first. The picture
+still splits around frame 7920, but the difference after it is smaller. Gameplay runs at 60 fps;
+loading is slower than without the scheduler (frame 4000 instead of 5300 after 100 s), because the
+loader runs alone. Next: diff `0xB5F00000` byte by byte (`state_dump_address=B5F00000`) to find
+the thread that writes it.
