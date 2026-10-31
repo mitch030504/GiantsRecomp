@@ -22,7 +22,7 @@ Last session: [sessions/2026-10-31/190505-claude-code-scheduler-step3-host-turns
   needs determinism first. Decision made: determinism route (see Next Up).
 - Gameplay recordings are automated: `tools/bot_record.sh` (headless, ~7 min) writes
   out/tmp/play.inputlog; replay with --portal_bot_figure=Spyro --clock_frame_locked=true.
-- Pushed to the forks: SDK 20dda51, main 61a3f9a.
+- Pushed to the forks: SDK 48aa917, main (latest docs: handoff commit).
 
 ## Next Up
 The user chose the **determinism route** ("whatever you think is best"): they want netplay that
