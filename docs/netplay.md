@@ -88,3 +88,36 @@ So gameplay state isn't deterministic across runs, and plain input lockstep woul
 seconds. Option 3 rules itself out: the remaining choices are host streaming (option 1) or
 deterministic guest scheduling (option 2).
 
+
+## Where the divergence comes from (2026-10-31)
+
+Two experiments from the determinism plan, plus a wait-by-wait trace:
+
+- **One core per replay** doesn't work as a test: on one core the game runs at about 4 fps, every
+  frame takes longer than the 250 ms stall threshold, and host time leaks in as virtual frames.
+- **`audio_guest_paced=true`** (SDK): under `clock_frame_locked`, the game is asked for an audio
+  buffer 3.125 times per guest frame (48000 / 60 / 256) instead of when the sound card wants one.
+  It works, but the runs still split at frame ~7560 (7680 without it), so audio isn't the cause.
+- **`sync_trace_log=<file>`** (SDK) writes every guest wait, sleep and semaphore release with
+  thread, guest frame, object (type letter + address), timeout and result.
+  `out/tmp/bot/helpers/sync_frames.py a.sync b.sync <from> <to>` compares the waits per thread
+  and frame. With it, two replays show:
+  - About 16 guest threads run during play. Five (threads 7-11) poll a semaphore with 1 ms
+    timeouts, about 20 timeouts per frame, and others sleep 1, 10 or 16 ms in a loop. All of these
+    use host time, so the number of polls per guest frame differs between runs.
+  - A few semaphores are taken hundreds of thousands of times by four threads (the main thread and
+    workers). Which thread gets one first is decided by the host scheduler.
+  - The game uses no guest timers. Thread 18 (a worker the main thread wakes every ~320 frames)
+    wakes on the same frames in both runs up to frame ~4900, then at different ones: the main
+    thread has diverged by then.
+
+So the remaining causes are host-timed sleeps and timeouts, and the order in which threads win
+locks. Fixing both means the deterministic scheduler from option 2, in three steps that can each
+be checked with the trace:
+
+1. Sleeps and wait timeouts in guest time under `clock_frame_locked` (a sleep ends at the guest
+   frame its deadline falls in). Check: per-frame poll counts of threads 7-11 match.
+2. One guest thread runs at a time, and the next one is picked in a fixed order at blocking
+   kernel calls. Check: per-thread wait sequences match.
+3. Host-driven events (GPU interrupts and fences, file I/O completion, notifications) delivered
+   at fixed guest points.

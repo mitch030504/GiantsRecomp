@@ -32,7 +32,9 @@
 | Netplay: virtualize guest time, rerun determinism | done: clock_frame_locked; rendering repeatable, memory still diverges from boot (heap order, audio) → STOP: user picks an option in docs/netplay.md | claude-code | 2026-10-30 |
 | Bot recording (input_script + portal_bot_figure + tools/bot_record.sh) | done: ~2.5 min Chapter 1 with level load, headless | claude-code | 2026-10-30 |
 | Netplay option 3 (gameplay-state compare), chosen by the user | done: gameplay diverges ~10 s into play with identical inputs | claude-code | 2026-10-30 |
-| Netplay determinism (option 2, chosen): audio paced by guest time, fixed thread order; then lockstep, then rollback | next: experiments 1-2 (see HANDOFF) | — | — |
+| Netplay determinism exp. 1-2 (single core, audio_guest_paced) + sync_trace_log | done: neither fixes it; causes = host-timed sleeps/timeouts + lock races (docs/netplay.md) | claude-code | 2026-10-31 |
+| Deterministic scheduler step 1: sleeps/timeouts in guest time | next | — | — |
+| Deterministic scheduler steps 2-3: one thread at a time, host events at fixed points | pending | — | — |
 | Netplay phases 1–4 (ENet, input sync, portal sync, desync UI) | blocked on the determinism decision | — | — |
 
 ## Blockers

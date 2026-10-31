@@ -64,3 +64,13 @@ Append-only. Newest at the bottom.
 **Files:** .ai/PLAN.md, .ai/conversations/HANDOFF.md
 **Next:** experiment 1 (single-core replays), experiment 2 (guest-time audio driver), then cooperative scheduling.
 ---
+## 2026-10-31 06:31 CET — claude-code
+**Task:** Q&A: summarise what's done and what's left.
+**Outcome:** Answered from PLAN.md/HANDOFF.md; no changes. Main still has 4 unpushed commits (33bc5e8..3465593); SDK in sync with fork.
+---
+## 2026-10-31 07:16 CET — claude-code
+**Task:** Continue netplay determinism: experiments 1 (single core) and 2 (guest-paced audio).
+**Outcome:** Exp 1 invalid (4 fps on one core -> stall frames). Exp 2 (`audio_guest_paced`) still splits at ~7560. Added `sync_trace_log`; causes are host-timed sleeps/timeouts and lock races. SDK changes staged, not committed.
+**Files:** SDK audio_system, sdl_audio_driver, xboxkrnl_video, xobject, xthread, xtimer, xsemaphore; docs/netplay.md; .ai/*
+**Next:** scheduler step 1 (guest-time sleeps/timeouts), verify with sync_frames.py.
+---

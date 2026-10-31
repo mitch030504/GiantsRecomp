@@ -1,9 +1,12 @@
 # Agent Handoff
-Last updated: 2026-10-30 23:50 CET by claude-code
+Last updated: 2026-10-31 07:16 CET by claude-code
 
 ## Active Work
 CachyOS desktop (RX 9070 XT, RADV, 4K TV at 150%), repo at ~/Projects/GiantsRecomp.
-Last session: [sessions/2026-10-30/223500-claude-code-backend-switch-windows-cross-upscalers.md]
+Last session: [sessions/2026-10-31/071614-claude-code-netplay-determinism-experiments.md]
+- 2026-10-31: experiments 1-2 done (single core invalid; audio_guest_paced didn't fix the split at
+  ~7560). New SDK `sync_trace_log` shows host-timed sleeps/timeouts and lock races as the causes.
+  SDK changes staged but NOT committed; docs/netplay.md updated, not committed.
 - F4 → GPU → gpu_backend switches D3D12/Vulkan (Windows has both; Linux Vulkan only; D3D12 on
   Linux = the Windows build under Proton). temporal_upscaler = fsr | xess | dlss.
 - The Windows build cross-compiles here (`tools/windows_cross.sh build`, needs the native release
@@ -31,28 +34,19 @@ shared clock. It does NOT run the game (no netcode in the game; the iGPU is too 
 asked why a dedicated server wouldn't fix sync; the answer was that the game has no netcode, so
 the server would have to stream (lag) or need the same determinism anyway.
 
-**Where the time-boxed experiments stand (none run yet):**
-- Baseline: two replays split ~10 s into play (frame ~7680; they match through the level load).
-- Helpers (git-ignored, in out/tmp/bot/helpers/): `replay.sh <name> <secs> <cores|-> [args]`
-  replays play.inputlog headless with dumps every 120 frames; `cmp.py <dirA> <dirB>` prints the
-  first frame where two runs split; `bot_run.sh`/`sheet.py` run a bot script and make contact
-  sheets (view sheets with the Read tool; never screenshot the desktop).
-- Experiment 1 (next): pin each replay to one core (`replay.sh e1a 300 2`, `replay.sh e1b 300 3`,
-  then `python3 -I out/tmp/bot/helpers/cmp.py out/tmp/bot/e1a out/tmp/bot/e1b`) to see how much
-  thread parallelism matters.
-- Experiment 2: a guest-time audio driver. The SDL driver (SDK src/audio/sdl/sdl_audio_driver.cpp)
-  releases the game's audio semaphore from SDL's callback, so the guest audio callback
-  (AudioSystem::WorkerThreadMain, which runs guest code) is paced by the sound card. With
-  clock_frame_locked, release 48000/60/256 = 3.125 buffers per VdSwap instead
-  (rex::ui::temporal::OnGuestSwap is the hook point). The null backend can't be used: its
-  CreateDriver fails.
-- Then: cooperative scheduling of guest threads (one runs at a time, switching at blocking kernel
-  calls), the real fix, if 1+2 don't get far.
+**Where it stands (2026-10-31):** experiments 1-2 done, see docs/netplay.md "Where the
+divergence comes from". Next: scheduler step 1, sleeps and wait timeouts in guest time under
+clock_frame_locked (XObject::Wait*/XThread::Delay use ScaleGuestDurationMillis of host ms now).
+Verify: `replay.sh <name> 900 - --audio_guest_paced=true --sync_trace_log=out/tmp/bot/<name>.sync`
+twice, then `python3 -I out/tmp/bot/helpers/sync_frames.py a.sync b.sync 6000 7700` (threads 7-11
+per-frame counts should match) and `cmp.py` for the frame split. Then step 2 (one guest thread at a
+time, fixed handoff order), step 3 (host events at fixed guest points).
 - Other open items: real-scene profile + upscaler A/B with the recording; upscale_quality / F4
   active-upscaler display / remove the fsr2 path; why Proton frame-locked runs differ; hands-on
   checks for the user (Wayland, F4 Graphics API + Restart now, DLSS/DLSS 5 on an RTX card).
 
 ## Recent Completions
+- [2026-10-31 claude-code] audio_guest_paced + sync_trace_log (SDK, staged); divergence causes found #investigation
 - [2026-10-30 claude-code] DLSS via NGX on D3D12+Vulkan, Linux+Windows (SDK 7c31e50, main 167ea1d) #feature
 - [2026-10-30 claude-code] XeSS 3.0.2 on D3D12+Vulkan (SDK 7752196) #feature
 - [2026-10-30 claude-code] dlss5_layer for DLSS5VKLayer (SDK 8fb185f) #feature
