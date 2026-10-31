@@ -121,3 +121,19 @@ be checked with the trace:
    kernel calls. Check: per-thread wait sequences match.
 3. Host-driven events (GPU interrupts and fences, file I/O completion, notifications) delivered
    at fixed guest points.
+
+### Step 1 result (2026-10-31)
+
+`clock_frame_locked_waits` (SDK, on by default with `clock_frame_locked`) makes sleeps and wait
+timeouts end by guest time. The polling threads now run exactly once per guest frame in both runs
+(1699 of 1701 frames match per thread, against ~500 before), at the same speed as before. The
+picture still splits around frame 7560-7680, but the frames are identical up to 7440.
+
+`state_hash_start=<read>` limits `state_hash_log` to a window, so a short interval stays fast.
+Hashing every 10 frames from 7000 (`out/tmp/bot/helpers/hash_onset.py` ranks buckets by the read
+where they stop matching): 424 buckets stay identical through 4500 frames of play, 60 differ from
+the start, and 7 start differing later. The first, at read 7050, is 4 words in 0xBA772050-0xBA7720BC:
+pointers to an object at 0xBA66A0E4 in one run and 0xBA66A10C in the other. The same allocation
+landed at a different address, so two threads allocated from the game's own heap (it uses no
+XMemAlloc/RtlAllocateHeap) in a different order. That is what step 2, one guest thread at a time in
+a fixed order, has to fix.

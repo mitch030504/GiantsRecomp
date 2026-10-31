@@ -46,6 +46,10 @@ REXCVAR_DEFINE_INT32(state_hash_interval, 300, "Netplay",
                      "Player 1 controller reads between state_hash_log checkpoints (about 5 "
                      "seconds at 60 reads per second).")
     .range(1, 1000000);
+REXCVAR_DEFINE_INT32(state_hash_start, 0, "Netplay",
+                     "First player 1 controller read with a state_hash_log checkpoint. Hashing all "
+                     "of guest memory is slow, so a short interval only fits a narrow window.")
+    .range(0, 100000000);
 REXCVAR_DEFINE_STRING(state_dump_address, "", "Netplay",
                       "Development: at every state_hash_log checkpoint, also write the 1 MB of "
                       "guest memory at this hex address to <state_hash_log>.<read index>.bin, to "
@@ -219,6 +223,7 @@ X_RESULT Filter(ReadKind kind, uint32_t user_index, X_RESULT result, T* value) {
   }
 
   if (g_tools->hash_log && kind == ReadKind::kState && user == 0 &&
+      index >= uint32_t(REXCVAR_GET(state_hash_start)) &&
       index % uint32_t(REXCVAR_GET(state_hash_interval)) == 0) {
     WriteStateHashes(g_tools->hash_log, index);
   }
