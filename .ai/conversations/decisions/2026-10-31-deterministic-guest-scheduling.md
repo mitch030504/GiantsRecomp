@@ -1,7 +1,7 @@
 # Decision: Deterministic guest scheduling in three steps, verified with a sync trace
 Date: 2026-10-31
 Agent: claude-code
-Status: accepted (step 1 done, steps 2-3 proposed)
+Status: accepted (steps 1-2 built, step 3 proposed)
 
 ## Context
 Lockstep netplay needs two runs fed the same inputs to stay identical. With frame-locked time and
@@ -54,3 +54,11 @@ keeps each change small and measurable, and each one helps replays and debugging
   waiting on host work while holding the token (must give it up in those waits).
 - Boot (before the first frame) stays host-timed; netplay must start both peers from the same
   point (e.g. after boot, or by loading the same state).
+
+## Update 2026-10-31 08:49 (step 2 built)
+- Besides blocking calls, the holder must also yield where guest code never blocks: failed
+  zero-timeout polls, every 16 sync operations, every 1024 loop back-edges (codegen
+  REX_LOOP_BACKEDGE), spinlock contention. Each was needed to get past a boot deadlock.
+- GPU interrupt callbacks run outside the token: the guest busy-waits on memory the command
+  processor writes, so a CP thread waiting for the token deadlocked. Step 3 must queue them.
+- Small quanta are faster than large ones (the main thread mostly busy-waits on other threads).

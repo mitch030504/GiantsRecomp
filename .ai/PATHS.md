@@ -13,7 +13,10 @@
 - `src/ui/vulkan/vulkan_temporal_inputs.cpp` + `include/rex/ui/vulkan/temporal_inputs.h` — motion/depth/color history
 - `src/ui/shaders/temporal_motion_cs.glsl` (+ `vulkan_spirv/temporal_motion_cs.h`) — block-matching motion estimation
 - `include/rex/ui/temporal_jitter.h`, `src/ui/temporal_jitter.cpp` — shared jitter + guest swap count
-- `src/core/clock.cpp`, `include/rex/chrono/clock.h` — guest clock; `clock_frame_locked` (deterministic time)
+- `src/core/clock.cpp`, `include/rex/chrono/clock.h` — guest clock; `clock_frame_locked` (deterministic time), guest-time waits
+- `src/system/guest_scheduler.cpp`, `include/rex/system/guest_scheduler.h` — `sched_deterministic` run token
+- `resources/templates/codegen/pch_h.inja`, `src/codegen/builders/{control_flow,context}.cpp` — REX_LOOP_BACKEDGE preemption
+- `src/system/xobject.cpp` — guest waits (guest-time deadlines, scheduler path, sync_trace_log)
 - `src/ui/d3d12/d3d12_presenter.cpp` — D3D12 presenter (temporal path not yet updated)
 - `src/input/input_system.cpp` — device assignment, state/keystroke filter hook
 - `src/kernel/xboxkrnl/xboxkrnl_video.cpp` — VdSwap, guest video mode
@@ -29,6 +32,7 @@
 
 ## Tools
 - `tools/compare_state_hashes.py` — diff two `state_hash_log` runs
+- `out/tmp/bot/helpers/` (git-ignored) — replay.sh, cmp.py, sync_frames.py, hash_onset.py, gdbstack.sh, threads.sh
 - `tools/upscaler_ab.sh`, `tools/upscaler_ab_analyze.py` — headless frame-locked FSR A/B vs native 4K (TARGET=windows-d3d12|windows-vulkan for the Proton build)
 - `tools/windows_cross.sh`, `cmake/toolchains/windows-xwin-clang.cmake` — Windows build on Linux (xwin) and Proton runner
 - SDK `src/ui/{ffx,xess,dlss}_runtime.*` — upscaler runtimes; `src/ui/d3d12/d3d12_temporal_inputs.cpp` — D3D12 motion/depth/history

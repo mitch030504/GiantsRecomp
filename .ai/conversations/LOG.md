@@ -80,3 +80,9 @@ Append-only. Newest at the bottom.
 **Files:** SDK clock, xobject, xthread; src/netplay/determinism.cpp; docs/netplay.md; .ai/*
 **Next:** step 2, run token.
 ---
+## 2026-10-31 08:49 CET — claude-code
+**Task:** Scheduler step 2: one guest thread at a time (sched_deterministic) #feature #netplay
+**Outcome:** Built and committed in SDK 00b0697 (not pushed; main bump not committed). Fixed four boot deadlocks (zero-timeout polls, lock-poll loops, GPU busy-wait, quantum throughput); runs faster than without it. Two-replay determinism test k1/k2 was still running at handoff.
+**Files:** SDK guest_scheduler.*, xobject/xthread/xevent/xmutant/xsemaphore, threading_*, codegen builders + pch template; .ai/*
+**Next:** read k1/k2 result, commit bump + docs, then step 3 (host events at fixed guest points).
+---

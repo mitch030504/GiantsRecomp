@@ -1,9 +1,12 @@
 # Agent Handoff
-Last updated: 2026-10-31 07:59 CET by claude-code
+Last updated: 2026-10-31 08:49 CET by claude-code
 
 ## Active Work
 CachyOS desktop (RX 9070 XT, RADV, 4K TV at 150%), repo at ~/Projects/GiantsRecomp.
-Last session: [sessions/2026-10-31/075935-claude-code-guest-time-waits-heap-order.md]
+Last session: [sessions/2026-10-31/084941-claude-code-deterministic-scheduler.md]
+- 2026-10-31 (3): step 2 built: `sched_deterministic` (SDK 00b0697, committed, NOT pushed; main
+  repo bump NOT committed). Runs at full speed (frame 5160 in 90 s). A two-replay determinism test
+  (k1/k2, see session file) was still running at handoff: read its result first.
 - 2026-10-31 (2): scheduler step 1 done (clock_frame_locked_waits, SDK aaa81e0): pollers match per
   frame. Still splits ~7560: first diverging memory = heap allocation order between threads.
   Design for step 2 in decisions/2026-10-31-deterministic-guest-scheduling.md.
@@ -19,7 +22,7 @@ Last session: [sessions/2026-10-31/075935-claude-code-guest-time-waits-heap-orde
   needs determinism first. Decision made: determinism route (see Next Up).
 - Gameplay recordings are automated: `tools/bot_record.sh` (headless, ~7 min) writes
   out/tmp/play.inputlog; replay with --portal_bot_figure=Spyro --clock_frame_locked=true.
-- Pushed: SDK up to 7c31e50, main up to 69e4baf. Not pushed: SDK f4c49d5, aaa81e0; main 33bc5e8..HEAD.
+- Pushed: SDK up to 7c31e50, main up to 69e4baf. Not pushed: SDK 00b0697; main repo bump for it not committed.
   Ask before pushing.
 
 ## Next Up
@@ -36,19 +39,20 @@ shared clock. It does NOT run the game (no netcode in the game; the iGPU is too 
 asked why a dedicated server wouldn't fix sync; the answer was that the game has no netcode, so
 the server would have to stream (lag) or need the same determinism anyway.
 
-**Where it stands (2026-10-31 07:59):** step 1 (guest-time timeouts) done and committed. Next is
-step 2, the run token: one guest thread at a time, handed on in thread-id order at blocking kernel
-calls; host threads running guest code (audio worker, GPU interrupts, APCs) take it too; spin hints
-(db16cyc/cctpl) become yield points. Design + risks: decisions/2026-10-31-deterministic-guest-scheduling.md.
-Verify each step with two replays (`replay.sh <n> 600 - --audio_guest_paced=true
---sync_trace_log=out/tmp/bot/<n>.sync`), then sync_frames.py, cmp.py, and for memory
-`--state_hash_log=... --state_hash_interval=10 --state_hash_start=7000` + hash_onset.py
-(delete old .hash files first; the log appends).
+**Where it stands (2026-10-31 08:49):** steps 1-2 built. Step 2 = GuestScheduler run token
+(SDK src/system/guest_scheduler.cpp) + codegen REX_LOOP_BACKEDGE() preemption (needs a codegen
+rerun: `cmake --build out/build/linux-amd64-release --target giantsrecomp_codegen`, then build).
+Test with `replay.sh <n> 600 - --audio_guest_paced=true --sched_deterministic=true` twice, then
+cmp.py / hash_onset.py (state hashes: `--state_hash_log=... --state_hash_interval=10
+--state_hash_start=7000`, delete old .hash first). Stuck runs: out/tmp/bot/helpers/gdbstack.sh.
+Quanta (guest_scheduler.cpp): 16 sync ops / 1024 back-edges; larger is much slower.
+Step 3 next: GPU interrupts and host completions at fixed guest points.
 - Other open items: real-scene profile + upscaler A/B with the recording; upscale_quality / F4
   active-upscaler display / remove the fsr2 path; why Proton frame-locked runs differ; hands-on
   checks for the user (Wayland, F4 Graphics API + Restart now, DLSS/DLSS 5 on an RTX card).
 
 ## Recent Completions
+- [2026-10-31 claude-code] sched_deterministic run token + loop back-edge preemption (SDK 00b0697) #feature
 - [2026-10-31 claude-code] clock_frame_locked_waits: guest-time sleeps/timeouts (SDK aaa81e0, main 97fb72d) #feature
 - [2026-10-31 claude-code] Heap allocation order found as first gameplay divergence (32133d4) #investigation
 - [2026-10-31 claude-code] audio_guest_paced + sync_trace_log (SDK, staged); divergence causes found #investigation
