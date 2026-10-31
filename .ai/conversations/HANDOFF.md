@@ -22,7 +22,7 @@ Last session: [sessions/2026-10-31/190505-claude-code-scheduler-step3-host-turns
   needs determinism first. Decision made: determinism route (see Next Up).
 - Gameplay recordings are automated: `tools/bot_record.sh` (headless, ~7 min) writes
   out/tmp/play.inputlog; replay with --portal_bot_figure=Spyro --clock_frame_locked=true.
-- Pushed: SDK up to 7c31e50, main up to 69e4baf. Pushed through SDK 4153831 / main (this commit) if the push below succeeded.
+- Pushed to the forks: SDK 4153831, main 6178944. Ask before pushing again.
   Ask before pushing.
 
 ## Next Up
