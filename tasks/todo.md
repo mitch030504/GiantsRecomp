@@ -1,11 +1,14 @@
 # Netplay tasks — Codex
-- [x] ENet pinned, session handshake and transport tests
-- [x] Bounded save snapshot and isolated client folder, negative tests
-- [x] Delayed input exchange integrated and tested
-- [x] Scheduled portal sync with host-only figure saving (client placement validated live)
-- [x] F8 status/error UI and usage docs (memory hashes diagnostic only, false-positive read0)
-- [ ] Native build, ctest, headless two-instance validation and review
-
-- [ ] Fix Linux scheduler Chapter1 loading stall (reproduces offline)
-- [ ] Implement real non-consuming Windows IsSignaled readiness to unblock boot
-- [ ] Final configure/rebuild latest CMake fingerprint/license tree, root commit and accessible submodule pushes
+- [x] ENet pinned, bounded transport and compatibility handshake tests
+- [x] Validated title-only save snapshots and isolated client folders
+- [x] Delayed input exchange, portal synchronization and host-only figure persistence
+- [x] F8 status/errors and documentation (memory hashes remain diagnostic only)
+- [x] Windows non-consuming readiness fix, regression tests and real deterministic boot
+- [x] Chapter1 loading slowdown: bounded leaf decoder batching, native/Windows build and paired checks
+- [x] Silent unattended harness using SDL dummy audio (optional --audible)
+- [x] Final configure/rebuild, built CTest checks and local implementation checkpoint
+- [ ] Resolve synthetic second-figure toy error; verify real two-player join/gameplay
+- [ ] Longer LAN/cross-machine sessions and disconnect/recovery validation
+- [ ] Reliable gameplay desync detection (current hashes can mismatch at read zero)
+- [ ] Guest-paced audio smoothness under steady real-time and slow rendering
+- [ ] Push accessible SDK/portal forks and root gitlinks; portal fork URL still needs resolution

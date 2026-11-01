@@ -49,7 +49,7 @@ using rex::X_STATUS;
 using skylanders::portal::FigureData;
 constexpr auto kRemoteDevice = rex::input::DeviceId(0x47524E4554504C59ull);
 // These affect guest-visible behavior. Rendering/presentation settings remain local.
-constexpr const char* kSettings[] = {"user_language", "skip_intro", "netplay_hash_interval", "bot_skip_movies"};
+constexpr const char* kSettings[] = {"user_language", "skip_intro", "netplay_hash_interval", "bot_skip_movies", "audio_maxqframes"};
 struct PendingFigure { PortalEvent event; std::optional<fs::path> source; };
 struct State {
   Session session;

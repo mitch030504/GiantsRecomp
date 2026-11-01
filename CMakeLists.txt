@@ -56,6 +56,7 @@ endif()
 set(GIANTSRECOMP_SOURCES
     src/main.cpp
     src/game/kernel_stubs.cpp
+    src/hooks/decompression_hook.cpp
     src/hooks/intro_skip_hook.cpp
     src/hooks/ultrawide_hook.cpp
     src/localization.cpp

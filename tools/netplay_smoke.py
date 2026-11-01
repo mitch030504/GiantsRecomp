@@ -19,6 +19,7 @@ def main():
     drive.add_argument('--script', type=Path, help='Host frame-based input script')
     parser.add_argument('--client-script', type=Path, help='Optional local input script for player 2')
     parser.add_argument('--hash-interval', type=int, default=0)
+    parser.add_argument('--audible', action='store_true', help='Play test audio through the default device')
     args = parser.parse_args()
     if args.seconds <= 0 or args.hash_interval < 0:
         parser.error('seconds must be positive and hash-interval nonnegative')
@@ -38,6 +39,9 @@ def main():
         port = sock.getsockname()[1]
     env = os.environ.copy()
     env.pop('WAYLAND_DISPLAY', None)
+    # Keep the normal SDL callback/clock while unattended peers stay inaudible.
+    if not args.audible:
+        env['SDL_AUDIO_DRIVER'] = 'dummy'
     env['LD_LIBRARY_PATH'] = str(root / 'thirdparty/rexglue-sdk/out/linux-amd64')
     processes = []
     files = []

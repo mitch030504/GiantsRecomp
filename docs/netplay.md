@@ -1,10 +1,11 @@
 # Experimental direct-IP netplay
 
-**Current validation blocker (2026-11-01):** this branch connects and synchronizes menus,
-loading and figure placements, but playable online co-op is not established. Linux's deterministic
-scheduler stalls at Chapter1 loading even in offline tests. Windows builds and core networking
-tests pass underProton, but guest boot stalls because the Windows readiness check is a stub.
-Raw memory hashes can also falsely report desync at read0. See the latest agent handoff for evidence.
+**Current validation (2026-11-01):** the Windows readiness defect is fixed, and bounded decoder
+batching clears the Chapter1 loading slowdown on both platforms. Paired runs agree through the
+opening scene and into single-player gameplay under Proton. Two-player joining and longer
+cross-machine sessions still need validation. Raw memory hashes can falsely report desync at read0.
+Synthetic second-figure tests currently reach the game's “toy has a problem” screen; matching
+peer outputs in those runs establish synchronization, not working two-player gameplay.
 
 Two instances can now start a delay-based lockstep session. This is experimental: extended
 co-op, WAN connections and different-PC determinism still need validation. Both peers need the
@@ -45,7 +46,7 @@ validated before any extraction. Snapshot transfer is a one-time startup copy; h
 remain authoritative.
 
 Netplay forces deterministic guest scheduling, guest-paced audio, guest-time waits, a 60 Hz
-clock/vblank and a 1280×720 guest video mode. Critical settings are locked for the session.
+clock/vblank and a 1280×720 guest video mode. The audio queue size also follows the host. Critical settings are locked for the session.
 Window resolution and render scaling can remain local. Guest projection hooks for ultrawide
 and temporal jitter are bypassed, and temporal presentation is disabled for this initial
 version, to keep monitor/upscaler choices out of guest state. Offline behavior is unchanged.
@@ -65,12 +66,16 @@ With the default 0, input ordering and protocol errors are checked but memory di
 detected automatically. Rollback, automatic resynchronization and adaptive delay are not
 implemented; a fixed delay must cover the connection's latency or gameplay waits for input.
 
+Guest-paced audio preserves simulation determinism but can crackle when the game runs below
+real time, particularly during heavy cutscenes. Audio smoothness is still an experimental limitation.
+
 For a native Linux two-instance smoke check (requires gamescope and your own extracted game):
 
 ```sh
 python3 tools/netplay_smoke.py --seconds=420 --script=tools/bot/netplay-story.txt
 ```
 
+The harness is silent by default through SDL dummy audio; add `--audible` to listen.
 It creates isolated host/client user directories, skips movies with the development-only
 `bot_skip_movies` flag (synchronized to the client), runs both peers headlessly, checks identical
 recorded guest inputs and matching captured frames, verifies an existing client-save sentinel

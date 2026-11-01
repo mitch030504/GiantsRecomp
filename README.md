@@ -148,7 +148,7 @@ The game's log says whether the layer was found. Without it, or without an NVIDI
 
 ## Experimental netplay
 
-Direct-IP co-op is under development on this branch and currently blocked by scheduler startup/loading issues. Start the host with
+Direct-IP co-op is under development on this branch and still needs full two-player and cross-machine validation. Start the host with
 `--netplay_host=true` and the client with `--netplay_connect=HOST_IPV4:24872`.
 The host shares its save files at startup; the client's own saves remain isolated.
 Both peers need compatible builds. See [setup and limitations](docs/netplay.md).
