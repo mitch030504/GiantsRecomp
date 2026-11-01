@@ -19,6 +19,7 @@
 #include <rex/ui/temporal_jitter.h>
 
 #include "netplay/input_log.h"
+#include "netplay/netplay.h"
 #include "netplay/input_script.h"
 #include "portal/figure_catalog.h"
 #include "portal/figure_file.h"
@@ -166,7 +167,7 @@ X_RESULT Filter(ReadKind kind, uint32_t user_index, X_RESULT result, T* value) {
   static_assert(sizeof(T) <= sizeof(InputRead::data));
   // Guest user indices are 0-3; anything else (XInputGetKeystrokeEx's "any user") passes through.
   if (user_index >= kMaxUsers) {
-    return result;
+    return Enabled() ? X_ERROR_DEVICE_NOT_CONNECTED : result;
   }
   const uint8_t user = uint8_t(user_index);
   std::lock_guard lock(g_tools->mutex);
@@ -212,6 +213,11 @@ X_RESULT Filter(ReadKind kind, uint32_t user_index, X_RESULT result, T* value) {
     }
   }
 
+  if (Enabled()) {
+    if constexpr (std::is_same_v<T, X_INPUT_STATE>) result = FilterState(user, value);
+    else { *value = {}; result = X_ERROR_EMPTY; }
+  }
+
   if (g_tools->recorder) {
     InputRead read;
     read.kind = kind;
@@ -255,10 +261,10 @@ void InstallDeterminismTools(rex::input::InputSystem* input) {
   const std::string replay = REXCVAR_GET(input_replay);
   const std::string hash_log = REXCVAR_GET(state_hash_log);
   const std::string script = REXCVAR_GET(input_script);
-  if (const std::string bot_figure = REXCVAR_GET(portal_bot_figure); !bot_figure.empty()) {
+  if (const std::string bot_figure = REXCVAR_GET(portal_bot_figure); !Enabled() && !bot_figure.empty()) {
     PlaceBotFigure(bot_figure);
   }
-  if (record.empty() && replay.empty() && hash_log.empty() && script.empty()) {
+  if (record.empty() && replay.empty() && hash_log.empty() && script.empty() && !Enabled()) {
     return;
   }
   if (!input) {
@@ -317,6 +323,7 @@ void InstallDeterminismTools(rex::input::InputSystem* input) {
     return Filter(ReadKind::kState, user, result, state);
   });
   input->SetKeystrokeFilter([](uint32_t user, X_RESULT result, X_INPUT_KEYSTROKE* keystroke) {
+    if (Enabled()) { *keystroke = {}; return rex::X_RESULT(X_ERROR_EMPTY); }
     return Filter(ReadKind::kKeystroke, user, result, keystroke);
   });
 }

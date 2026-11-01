@@ -27,6 +27,7 @@
 #include <rex/hook.h>
 #include <rex/memory/utils.h>
 #include <rex/ui/temporal_jitter.h>
+#include "netplay/netplay.h"
 
 REXCVAR_DECLARE(std::string, resolution);
 
@@ -49,7 +50,7 @@ REX_EXTERN(__imp__BuildOrthographicProjectionMatrix);
 REX_HOOK_RAW(BuildOrthographicProjectionMatrix) {
   int32_t width = 0;
   int32_t height = 0;
-  if (REXCVAR_GET(ultrawide_hud) && uint32_t(ctx.lr) == 0x8219118C &&
+  if (!giantsrecomp::netplay::Enabled() && REXCVAR_GET(ultrawide_hud) && uint32_t(ctx.lr) == 0x8219118C &&
       rex::graphics::video_mode_util::TryParseResolutionPreset(REXCVAR_GET(resolution), width,
                                                                 height) &&
       width > 0 && height > 0) {
@@ -90,7 +91,7 @@ REXCVAR_DEFINE_INT32(temporal_jitter_flip, 0, "Graphics",
 REX_EXTERN(__imp__BuildPerspectiveProjectionMatrix);
 
 REX_HOOK_RAW(BuildPerspectiveProjectionMatrix) {
-  if (REXCVAR_GET(ultrawide_fov)) {
+  if (!giantsrecomp::netplay::Enabled() && REXCVAR_GET(ultrawide_fov)) {
     int32_t width = 0;
     int32_t height = 0;
     if (rex::graphics::video_mode_util::TryParseResolutionPreset(REXCVAR_GET(resolution), width,
@@ -123,7 +124,7 @@ REX_HOOK_RAW(BuildPerspectiveProjectionMatrix) {
   // off-screen cameras included (a sub-pixel wobble there); filter by ctx.lr if one ever shows.
   uint32_t render_width = 0;
   uint32_t render_height = 0;
-  if (rex::ui::temporal::IsActive(render_width, render_height)) {
+  if (!giantsrecomp::netplay::Enabled() && rex::ui::temporal::IsActive(render_width, render_height)) {
     float jitter_x = 0.0f;
     float jitter_y = 0.0f;
     rex::ui::temporal::JitterForFrame(rex::ui::temporal::GuestSwapCount(), jitter_x, jitter_y);

@@ -4,7 +4,7 @@
 - `src/giantsrecomp_app.h` — ReXApp subclass: setup hooks, fonts, overlays, portal + netplay tools install
 - `src/hooks/ultrawide_hook.cpp` — projection hooks (ultrawide FOV/HUD, temporal-upscaler jitter)
 - `src/hooks/intro_skip_hook.cpp` — skips logo movies
-- `src/netplay/` — input record/replay (`input_log.*`) and determinism tools (`determinism.*`)
+- `src/netplay/` — ENet `session.*`, `lockstep.*`, `netplay.*` app integration, `save_snapshot.*`, `figure_sync.*`, plus input record/replay and determinism tools
 - `src/xex_verify.*`, `src/tools/xex_check_cli.cpp` — pinned default.xex SHA-256 check
 - `generated/` — recompiled code (git-ignored except `rexglue.cmake`)
 
@@ -31,6 +31,9 @@
 - `tests/` — `xex_verify_test`, `input_log_test`, CLI tests (ctest)
 
 ## Tools
+- `tools/netplay_smoke.py`, `tools/bot/netplay-story.txt` — isolated headless two-peer validation (actual loading blocker documented)
+- `tasks/plan.md`, `tasks/todo.md` — netplay implementation checklist
+- `thirdparty/enet` — ENet1.3.18 pinned UDP transport
 - `tools/compare_state_hashes.py` — diff two `state_hash_log` runs
 - `out/tmp/bot/helpers/` (git-ignored) — replay.sh, cmp.py, sync_frames.py, hash_onset.py, gdbstack.sh, threads.sh
 - `tools/upscaler_ab.sh`, `tools/upscaler_ab_analyze.py` — headless frame-locked FSR A/B vs native 4K (TARGET=windows-d3d12|windows-vulkan for the Proton build)
@@ -58,6 +61,7 @@
 - `README.md` — project readme
 
 ## Feature Specs / Plans
+- `.ai/conversations/decisions/2026-11-01-netplay-session-boundaries.md` — implemented session/save/figure authority decisions and validation limits
 No formal spec system. Active plan: `.ai/plans/splendid-sprouting-goblet.md` (copy of the approved Claude Code plan).
 
 ## Agent Handoff

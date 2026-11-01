@@ -49,6 +49,7 @@ These keys work no matter what you're playing with:
 | **F4** | Opens the settings overlay |
 | **F6** | Portal of Power menu (figure picker, or real portal status and dumping) |
 | **F7** | Achievements |
+| **F8** | Netplay status (when a netplay session was launched) |
 
 ### Playing with keyboard and mouse
 
@@ -144,6 +145,13 @@ The game's log says whether the layer was found. Without it, or without an NVIDI
 - **macOS** has build presets, but nobody has tried it yet
 
 ---
+
+## Experimental netplay
+
+Direct-IP co-op is under development on this branch and currently blocked by scheduler startup/loading issues. Start the host with
+`--netplay_host=true` and the client with `--netplay_connect=HOST_IPV4:24872`.
+The host shares its save files at startup; the client's own saves remain isolated.
+Both peers need compatible builds. See [setup and limitations](docs/netplay.md).
 
 ## Building from source
 

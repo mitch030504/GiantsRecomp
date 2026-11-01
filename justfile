@@ -146,7 +146,7 @@ package-linux: build-release
     mkdir -p "$dist" && \
     cp out/build/linux-amd64-release/giantsrecompiled out/build/linux-amd64-release/giantsrecomp_xexcheck "$dist/" && \
     cp {{ sdk_lib_dir }}/*.so "$dist/" && \
-    for extra in out/build/linux-amd64-release/libnvidia-ngx-dlss.so.* out/build/linux-amd64-release/dlss_license.txt; do [ -e "$extra" ] && cp "$extra" "$dist/" || true; done && \
+    for extra in out/build/linux-amd64-release/libnvidia-ngx-dlss.so.* out/build/linux-amd64-release/*_license.*; do [ -e "$extra" ] && cp "$extra" "$dist/" || true; done && \
     cp installer/linux-setup.sh installer/70-portal-of-power.rules installer/settings_template.toml "$dist/" && \
     tar -C dist -czf dist/giantsrecomp-linux-amd64.tar.gz giantsrecomp-linux-amd64 && \
     echo "Packaged dist/giantsrecomp-linux-amd64.tar.gz"

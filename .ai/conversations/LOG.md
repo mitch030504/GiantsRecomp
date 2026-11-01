@@ -141,3 +141,28 @@ Append-only. Newest at the bottom.
 **Task:** Start netplay phase 1 #netplay
 **Outcome:** Blocked: adding ENet as a submodule was refused by auto mode; needs user approval. No partial state.
 ---
+
+## 2026-11-01 13:14 CET — Codex
+**Task:** Project progress/status review #status #investigation
+**Outcome:** Reconciled handoff, plan, docs and git. Base port playable; Linux/upscalers largely implemented with validation pending; netplay replay foundation demonstrated, transport/input/portal sync and UX unimplemented. No runtime checks rerun. Session: sessions/2026-11-01/131432-codex-project-status.md.
+---
+
+## 2026-11-01 13:24 CET — Codex /root/save_snapshot
+**Task:** Bounded netplay save/profile snapshots #netplay #security #tests
+**Outcome:** Added independent pack/unpack helpers and negative/roundtrip tests. Native strict and ASan/UBSan pass; Windows objects compile. Root integrates CMake and HANDOFF. Session: sessions/2026-11-01/132446-codex-save-snapshot.md.
+---
+
+## 2026-11-01 13:55 CET — Codex
+**Task:** Unattended netplay implementation #netplay #feature #investigation
+**Outcome:** ENet transport, startup isolation, delayed input, portal sync and F8 status implemented; native180s menu smoke passes; corrected unsupported historical Chapter1 replay label. Extended Story test and final validation active. Session: sessions/2026-11-01/135531-codex-netplay-implementation.md.
+---
+
+## 2026-11-01 14:53 CET — Codex
+**Task:** Final unattended checkpoint and corrected status #handoff #netplay #investigation
+**Outcome:** Transport/input/save/portal/UI implemented; native and Windows builds/core tests pass. Linux scheduler Chapter1 loading stalls even offline; non-scheduler baseline plays. Windows IsSignaled always-true stub identified as boot blocker. Historical gameplay claim corrected. Root uncommitted; submodules local commits only. Full evidence/nextsteps: sessions/2026-11-01/145320-codex-netplay-final-handoff.md.
+---
+
+## 2026-11-01 14:54 CET — Codex
+**Task:** Checkpoint verification #handoff #tests
+**Outcome:** Latest native source/fingerprint/license configured+built;10projecttests pass;SDK963assertions pass(234cases,4existing skips). ENet license staged. Authority decision recorded; all owned processes exited. Root remains uncommitted, no pushes.
+---

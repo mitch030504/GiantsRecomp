@@ -36,3 +36,9 @@ skip_intro = true                         # skip the Activision and Toys for Bob
 
 ["Runtime"]
 # user_data_root = "C:\\path\\to\\folder" # empty = Documents\giantsrecomp
+
+# Experimental direct-IP netplay (start both games from launch; see docs/netplay.md).
+# netplay_host = true
+# netplay_port = 24872
+# netplay_connect = "192.168.1.10:24872"
+# netplay_delay = 3 # Host-selected controller-read delay, normally ~60 reads/s.

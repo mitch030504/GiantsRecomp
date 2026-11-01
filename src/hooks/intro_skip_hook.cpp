@@ -19,6 +19,9 @@
 REXCVAR_DEFINE_BOOL(skip_intro, true, "Game",
                     "Skip the Activision and Toys for Bob logo movies at startup.");
 
+REXCVAR_DEFINE_BOOL(bot_skip_movies, false, "Netplay",
+                    "Development: shorten every Bink movie to one frame for automated gameplay tests.");
+
 namespace {
 
 struct LogoMovie {
@@ -34,7 +37,7 @@ constexpr LogoMovie kLogoMovies[] = {
 }  // namespace
 
 void BinkHeaderLoaded(PPCRegister& r1) {
-  if (!REXCVAR_GET(skip_intro)) {
+  if (!REXCVAR_GET(skip_intro) && !REXCVAR_GET(bot_skip_movies)) {
     return;
   }
   uint8_t* base = rex::system::kernel_state()->memory()->virtual_membase();
@@ -43,6 +46,11 @@ void BinkHeaderLoaded(PPCRegister& r1) {
   // into native (big-endian) words by the time it reaches this point.
   const uint32_t size_field = rex::memory::load_and_swap<uint32_t>(header + 4);
   const uint32_t frames = rex::memory::load_and_swap<uint32_t>(header + 8);
+  if (REXCVAR_GET(bot_skip_movies)) {
+    rex::memory::store_and_swap<uint32_t>(header + 8, 1);
+    REXLOG_INFO("Bot: skipping movie ({} frames)", frames);
+    return;
+  }
   for (const LogoMovie& logo : kLogoMovies) {
     if (size_field == logo.size_field && frames == logo.frames) {
       rex::memory::store_and_swap<uint32_t>(header + 8, 1);

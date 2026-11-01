@@ -8,7 +8,9 @@
 #include <windows.h>
 #endif
 
+#include <atomic>
 #include <chrono>
+#include <thread>
 #include <cstdlib>
 #include <filesystem>
 #include <optional>
@@ -21,6 +23,7 @@
 
 #include "localization.h"
 #include "netplay/determinism.h"
+#include "netplay/netplay.h"
 #include "portal_rex/portal_rex.h"
 #include "xex_verify.h"
 
@@ -58,10 +61,14 @@ class GiantsrecompApp : public rex::ReXApp {
     // Some of the game's text (e.g. the autosave warning dialog) is already resolved by the time
     // OnPostSetup runs -- apply this as early as possible, before the XEX even loads.
     giantsrecomp::ApplyLanguageSetting();
+    std::string error;
+    if (!giantsrecomp::netplay::Configure(user_data_root(), error)) Fatal(error);
   }
 
   void OnPostSetup() override {
     skylanders::InstallPortal(user_data_root() / "figures");
+    giantsrecomp::netplay::Install(
+        static_cast<rex::input::InputSystem*>(runtime()->input_system()));
     // XAM reaches the input system the same way: the runtime only stores it by its interface.
     giantsrecomp::netplay::InstallDeterminismTools(
         static_cast<rex::input::InputSystem*>(runtime()->input_system()));
@@ -128,6 +135,35 @@ class GiantsrecompApp : public rex::ReXApp {
 
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
     skylanders::RegisterPortalOverlay(drawer);
+    giantsrecomp::netplay::RegisterOverlay(drawer);
+  }
+
+  std::optional<rex::PathConfig> OnFinalizePaths(
+      const rex::PathConfig& defaults, std::function<void(rex::PathConfig)> resume) override {
+    if (!giantsrecomp::netplay::Requested()) return defaults;
+    auto* context = &app_context();
+    auto alive = startup_alive_;
+    netplay_startup_ = std::thread([context, alive, paths = defaults, resume = std::move(resume)]() mutable {
+      std::string error;
+      const bool ready = giantsrecomp::netplay::Prepare(paths, error);
+      context->CallInUIThreadDeferred([alive, ready, error, paths, resume = std::move(resume)]() mutable {
+        if (!alive->load()) return;
+        if (!ready || !giantsrecomp::netplay::FinishPrepare(error)) Fatal(error);
+        resume(std::move(paths));
+      });
+    });
+    return std::nullopt;
+  }
+
+  bool OnWindowCloseRequested() override {
+    giantsrecomp::netplay::Stop();
+    return true;
+  }
+
+  void OnShutdown() override {
+    startup_alive_->store(false);
+    giantsrecomp::netplay::Stop();
+    if (netplay_startup_.joinable()) netplay_startup_.join();
   }
 
   void OnConfigurePaths(rex::PathConfig& paths) override {
@@ -157,6 +193,9 @@ class GiantsrecompApp : public rex::ReXApp {
   }
 
  private:
+  std::thread netplay_startup_;
+  std::shared_ptr<std::atomic<bool>> startup_alive_ = std::make_shared<std::atomic<bool>>(true);
+
   [[noreturn]] static void Fatal(const std::string& message) {
     REXLOG_ERROR("{}", message);
 #ifdef _WIN32

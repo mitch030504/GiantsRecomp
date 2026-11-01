@@ -36,13 +36,13 @@
 | Deterministic scheduler step 1: sleeps/timeouts in guest time (clock_frame_locked_waits) | done: pollers match per frame; split remains (heap allocation order) | claude-code | 2026-10-31 |
 | Deterministic scheduler step 2: run token, fixed handoff order (sched_deterministic) | built, full speed (SDK 00b0697, 5752e48); split 7560 -> 7920, memory still diverges ~7020 | claude-code | 2026-10-31 |
 | Deterministic scheduler step 3: host threads (GPU, vblank, audio, dispatch) on fixed turns + idle/busy virtual frames | done (SDK 4153831): 408/491 buckets match, 11 diverge for good; picture still splits ~7920 | claude-code | 2026-10-31 |
-| Determinism: guest-timed boot, interrupt fixes (SDK 2405954, 20dda51) | done: full recording identical in picture (23880 frames) and thread order | claude-code | 2026-10-31 |
+| Determinism: guest-timed boot, interrupt fixes (SDK 2405954, 20dda51) | replay picture identical, but corrected2026-11-01: recording onlymenus/Battle; actualChapter1loadingstall | claude-code | 2026-10-31 |
 | Determinism: 3 buckets (0xB5F/0xBB2/0xBB3 00000) split intermittently at read ~8065, no visible effect | open (minor) | — | — |
-| Netplay phase 1 (ENet transport + handshake) | next | — | — |
-| Netplay phases 2–4 (input sync, portal sync, desync UI) | pending | — | — |
+| Netplay phase 1 (ENet transport + handshake) | implemented; native pairs + Windows core tests pass; guest runtime gates open | Codex | 2026-11-01 |
+| Netplay phases 2–4 (input sync, portal sync, desync UI) | implemented in source; actual gameplay blocked by scheduler; hashes false-positive at read0 | Codex | 2026-11-01 |
 
 ## Blockers
-- Netplay determinism: solved for replays under sched_deterministic (SDK 20dda51); Unraid = lobby/relay only.
+- Netplay gameplay gate OPEN: prior replay was menus/Battle, not Chapter1. Linux sched_deterministic stalls Chapter1 loading even offline; Windows IsSignaled always-true stub blocks boot. Unraid = lobby/relay only.
 - FSR 4.1.2 and XeSS ship Windows DLLs only: native Linux keeps FSR 3.1; the Windows build under
   Proton gets them (FSR 4 on Vulkan).
 - DLSS / DLSS 5 can't run here (no RTX card): fallback paths verified only.

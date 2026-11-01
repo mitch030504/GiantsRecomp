@@ -1,4 +1,83 @@
-# Netplay determinism check
+# Experimental direct-IP netplay
+
+**Current validation blocker (2026-11-01):** this branch connects and synchronizes menus,
+loading and figure placements, but playable online co-op is not established. Linux's deterministic
+scheduler stalls at Chapter1 loading even in offline tests. Windows builds and core networking
+tests pass underProton, but guest boot stalls because the Windows readiness check is a stub.
+Raw memory hashes can also falsely report desync at read0. See the latest agent handoff for evidence.
+
+Two instances can now start a delay-based lockstep session. This is experimental: extended
+co-op, WAN connections and different-PC determinism still need validation. Both peers need the
+same game and compatible source build; mismatches are rejected before saves are transferred.
+
+Host:
+
+```sh
+giantsrecompiled --netplay_host=true --netplay_port=24872
+```
+
+Client (replace the address with the host's numeric IPv4):
+
+```sh
+giantsrecompiled --netplay_connect=192.168.1.10:24872
+```
+
+The transport uses ENet 1.3.18 over UDP. Use trusted peers on a trusted network: this initial
+transport has no authentication or encryption, matchmaking, NAT traversal or relay. The host
+waits up to `netplay_timeout_seconds` (default 60) for a client. A UDP port forward or VPN is
+needed for hosts outside the same LAN. Hosting/joining is selected at process launch; F8 shows
+connection status, ping and delay, and F6 controls figures. Restart both games to reconnect.
+The window remains responsive while waiting for the handshake.
+
+The host selects `netplay_delay` (default 3, range 0–12), measured in player 1 controller reads,
+normally about 60 per second. Each peer's first local controller/keyboard feeds its own player:
+host is player 1, client is player 2. Other local devices merge into that player's input. Input
+packets and figure changes are applied at the same delayed read index on both games. A lost
+connection or malformed input pauses guest execution; it never falls back to unsynchronized
+live input. Rumble stays on the local player's physical devices.
+
+Before either game launches, the host sends its Giants save/profile data and gameplay settings.
+The client extracts into a fresh, private temporary session directory; its existing saves are
+not overwritten. The log prints that directory, retained for inspection after exit. Only this
+game's title 415608DA save/profile trees are shared, within 16 MiB / 4096 files. Caches, unrelated
+games, achievements and the figure library are excluded. Received paths and lengths are
+validated before any extraction. Snapshot transfer is a one-time startup copy; host saves
+remain authoritative.
+
+Netplay forces deterministic guest scheduling, guest-paced audio, guest-time waits, a 60 Hz
+clock/vblank and a 1280×720 guest video mode. Critical settings are locked for the session.
+Window resolution and render scaling can remain local. Guest projection hooks for ultrawide
+and temporal jitter are bypassed, and temporal presentation is disabled for this initial
+version, to keep monitor/upscaler choices out of guest state. Offline behavior is unchanged.
+
+The host's startup figure is shared. F6 placements/removals from either peer are queued and
+applied identically. Client placements first request a synchronized removal, then the host
+loads that toy's latest saved progression and broadcasts the placement. This adds a short
+round trip to client figure changes and prevents stale client dumps from resetting progression.
+Only the host writes in-game figure progression. Host-selected figures retain their original
+source; remote figures are saved in the host's `figures/giantsrecomp-netplay-*` session folder.
+Client-selected figure files retain their original progression; the host keeps separate authoritative copies by toy identity.
+
+Memory desync checking is **opt-in** with host `--netplay_hash_interval=120`. Known host-only
+kernel-object and stack ranges are excluded, but unexplained unused-byte differences can still
+produce false positives, including at the first controller read. A mismatch pauses both peers when their delayed checkpoints meet.
+With the default 0, input ordering and protocol errors are checked but memory divergence is not
+detected automatically. Rollback, automatic resynchronization and adaptive delay are not
+implemented; a fixed delay must cover the connection's latency or gameplay waits for input.
+
+For a native Linux two-instance smoke check (requires gamescope and your own extracted game):
+
+```sh
+python3 tools/netplay_smoke.py --seconds=420 --script=tools/bot/netplay-story.txt
+```
+
+It creates isolated host/client user directories, skips movies with the development-only
+`bot_skip_movies` flag (synchronized to the client), runs both peers headlessly, checks identical
+recorded guest inputs and matching captured frames, verifies an existing client-save sentinel
+is unchanged, and keeps logs under `out/tmp/netplay-smoke-*`. This checks a single machine;
+it does not establish cross-machine or internet reliability.
+
+# Netplay determinism tools
 
 Lockstep netplay needs two PCs that are fed the same inputs to stay in the same state. These tools
 check whether that holds before any networking gets built.

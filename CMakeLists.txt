@@ -22,6 +22,24 @@ if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/skylanders-portal/CMakeLis
     message(FATAL_ERROR "thirdparty/skylanders-portal is missing. Run: git submodule update --init --recursive")
 endif()
 add_subdirectory(thirdparty/skylanders-portal)
+add_library(giantsrecomp_netplay_figures STATIC src/netplay/figure_sync.cpp)
+target_include_directories(giantsrecomp_netplay_figures PUBLIC src)
+target_link_libraries(giantsrecomp_netplay_figures PUBLIC skylanders_portal_core)
+
+# Reliable UDP transport for the optional, direct-IP netplay session.
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/enet/CMakeLists.txt")
+    message(FATAL_ERROR "thirdparty/enet is missing. Run: git submodule update --init --recursive")
+endif()
+add_subdirectory(thirdparty/enet EXCLUDE_FROM_ALL)
+configure_file(thirdparty/enet/LICENSE "${CMAKE_CURRENT_BINARY_DIR}/enet_license.txt" COPYONLY)
+# ENet 1.3.18's CMake recipe adds these only for MinGW; clang/MSVC need them too.
+if(WIN32)
+    target_link_libraries(enet PUBLIC winmm ws2_32)
+endif()
+add_library(giantsrecomp_netplay STATIC src/netplay/session.cpp src/netplay/lockstep.cpp src/netplay/save_snapshot.cpp)
+target_include_directories(giantsrecomp_netplay PUBLIC src PRIVATE thirdparty/enet/include)
+find_package(Threads REQUIRED)
+target_link_libraries(giantsrecomp_netplay PUBLIC enet Threads::Threads)
 
 # Recompiled code is generated from the user's own default.xex and is not in the repository.
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/sources.cmake")
@@ -41,6 +59,7 @@ set(GIANTSRECOMP_SOURCES
     src/hooks/intro_skip_hook.cpp
     src/hooks/ultrawide_hook.cpp
     src/localization.cpp
+    src/netplay/netplay.cpp
     src/netplay/determinism.cpp
     src/netplay/input_log.cpp
     src/netplay/input_script.cpp
@@ -91,8 +110,50 @@ endif()
 target_include_directories(giantsrecomp_verify PRIVATE "${REXSDK_DIR}/thirdparty")
 target_sources(giantsrecomp_verify PRIVATE "${REXSDK_DIR}/thirdparty/crypto/sha256.cpp")
 
-target_link_libraries(giantsrecompiled PRIVATE giantsrecomp_verify skylanders_portal_rex)
+target_link_libraries(giantsrecompiled PRIVATE giantsrecomp_verify skylanders_portal_rex giantsrecomp_netplay giantsrecomp_netplay_figures)
 target_compile_definitions(giantsrecompiled PRIVATE GIANTSRECOMP_XEX_SHA256="${GIANTSRECOMP_XEX_SHA256}")
+
+# Compatibility fingerprint follows source contents, including local edits, instead of a docs
+# commit or build timestamp. SDK changes and codegen configuration must agree on both peers.
+file(GLOB_RECURSE GIANTSRECOMP_FINGERPRINT_INPUTS CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h")
+list(APPEND GIANTSRECOMP_FINGERPRINT_INPUTS
+    "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt"
+    "${CMAKE_CURRENT_SOURCE_DIR}/config/default.toml"
+    "${CMAKE_CURRENT_SOURCE_DIR}/giantsrecomp_manifest.toml")
+set(GIANTSRECOMP_BUILD_INPUT "netplay-protocol-1;${CMAKE_BUILD_TYPE};${CMAKE_SYSTEM_PROCESSOR};${CMAKE_CXX_COMPILER_ID};${CMAKE_CXX_COMPILER_VERSION}")
+foreach(input IN LISTS GIANTSRECOMP_FINGERPRINT_INPUTS)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${input}")
+    file(SHA256 "${input}" input_hash)
+    string(APPEND GIANTSRECOMP_BUILD_INPUT "${input_hash}")
+endforeach()
+foreach(dependency rexglue-sdk skylanders-portal enet)
+    execute_process(COMMAND git rev-parse HEAD
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/${dependency}"
+        OUTPUT_VARIABLE dependency_revision OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    string(APPEND GIANTSRECOMP_BUILD_INPUT "${dependency_revision}")
+    file(GLOB_RECURSE dependency_sources CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/${dependency}/src/*"
+        "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/${dependency}/include/*"
+        "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/${dependency}/resources/*"
+        "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/${dependency}/cmake/*")
+    # ENet keeps its C sources at the root; include its build recipe and SDK recipes too.
+    file(GLOB dependency_root_sources CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/${dependency}/*.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/${dependency}/CMakeLists.txt")
+    list(APPEND dependency_sources ${dependency_root_sources})
+    foreach(input IN LISTS dependency_sources)
+        if(NOT IS_DIRECTORY "${input}")
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${input}")
+            file(SHA256 "${input}" input_hash)
+            string(APPEND GIANTSRECOMP_BUILD_INPUT "${input_hash}")
+        endif()
+    endforeach()
+endforeach()
+string(SHA256 GIANTSRECOMP_BUILD_HASH "${GIANTSRECOMP_BUILD_INPUT}")
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/netplay_build.h"
+    CONTENT "#define GIANTSRECOMP_BUILD_HASH \"${GIANTSRECOMP_BUILD_HASH}\"\n")
+target_include_directories(giantsrecompiled PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
 enable_testing()
 add_executable(giantsrecomp_tests tests/xex_verify_test.cpp)
@@ -120,3 +181,26 @@ add_test(NAME input_script COMMAND giantsrecomp_input_script_test)
 add_executable(xex_check_exit_code_test tests/xex_check_exit_code_test.cpp)
 target_include_directories(xex_check_exit_code_test PRIVATE src)
 add_test(NAME xex_check_exit_code COMMAND xex_check_exit_code_test)
+
+add_executable(giantsrecomp_netplay_session_test tests/netplay_session_test.cpp)
+target_link_libraries(giantsrecomp_netplay_session_test PRIVATE giantsrecomp_netplay)
+target_include_directories(giantsrecomp_netplay_session_test PRIVATE thirdparty/enet/include)
+add_test(NAME netplay_session COMMAND giantsrecomp_netplay_session_test)
+set_tests_properties(netplay_session PROPERTIES TIMEOUT 20)
+
+add_executable(giantsrecomp_netplay_lockstep_test tests/netplay_lockstep_test.cpp)
+target_link_libraries(giantsrecomp_netplay_lockstep_test PRIVATE giantsrecomp_netplay)
+add_test(NAME netplay_lockstep COMMAND giantsrecomp_netplay_lockstep_test)
+set_tests_properties(netplay_lockstep PROPERTIES TIMEOUT 20)
+
+add_executable(giantsrecomp_netplay_save_test tests/netplay_save_test.cpp)
+target_link_libraries(giantsrecomp_netplay_save_test PRIVATE giantsrecomp_netplay)
+add_test(NAME netplay_save COMMAND giantsrecomp_netplay_save_test)
+
+add_executable(giantsrecomp_netplay_portal_control_test tests/netplay_portal_control_test.cpp)
+target_link_libraries(giantsrecomp_netplay_portal_control_test PRIVATE skylanders_portal_rex)
+add_test(NAME netplay_portal_control COMMAND giantsrecomp_netplay_portal_control_test)
+
+add_executable(giantsrecomp_netplay_figure_sync_test tests/netplay_figure_sync_test.cpp)
+target_link_libraries(giantsrecomp_netplay_figure_sync_test PRIVATE giantsrecomp_netplay_figures)
+add_test(NAME netplay_figure_sync COMMAND giantsrecomp_netplay_figure_sync_test)
