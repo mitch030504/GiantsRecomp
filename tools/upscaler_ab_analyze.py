@@ -87,23 +87,36 @@ def main(root):
         for x0, y0, x1, y1 in UI_RECTS:
             moved[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)] = True
         mask = ~np.kron(moved, np.ones((2, 2), dtype=bool))  # 1080p mask -> 4K
-        coverage.append(mask.mean())
+        if not mask.any():
+            continue
         ref = arr(lum(ref_dir / f"in{name}"))
         gy, gx = np.gradient(ref)
         weight = np.hypot(gx, gy) * mask
+        weight_sum = float(weight.sum())
+        # Blank startup frames have no unmasked edges to compare.
+        if weight_sum == 0:
+            continue
+        coverage.append(mask.mean())
         imgs = {f.name: arr(lum(f / f"out{name}")) for f in flips}
         imgs["bilinear"] = arr(nat.resize((ref.shape[1], ref.shape[0]), Image.Resampling.BILINEAR))
         for k, img in imgs.items():
             sq = (img - ref) ** 2
-            psnr[k].append(10 * np.log10(255.0 ** 2 / float(sq[mask].mean())))
-            edge[k].append(float(np.sqrt((sq * weight).sum() / weight.sum())))
+            mse = float(sq[mask].mean())
+            psnr[k].append(10 * np.log10(255.0 ** 2 / mse) if mse else float('inf'))
+            edge[k].append(float(np.sqrt((sq * weight).sum() / weight_sum)))
+    if not coverage:
+        raise SystemExit('No common frames with visible unmasked edges to compare')
     print(f"frames: {len(coverage)}, mean mask coverage: {np.mean(coverage):.1%}")
     print(f"{'run':<10} {'PSNR dB':>8} {'vs flip0':>17} {'edge RMS':>9} {'vs flip0':>17}")
     for k in names:
         p, e = np.array(psnr[k]), np.array(edge[k])
-        dp, de = p - np.array(psnr["L_flip0"]), e - np.array(edge["L_flip0"])
-        sp = dp.std(ddof=1) / np.sqrt(dp.size)
-        se = de.std(ddof=1) / np.sqrt(de.size)
+        base = np.array(psnr["L_flip0"])
+        dp = np.zeros_like(p)
+        # Two perfect reconstructions tie, even though infinity - infinity is undefined.
+        np.subtract(p, base, out=dp, where=~(np.isposinf(p) & np.isposinf(base)))
+        de = e - np.array(edge["L_flip0"])
+        sp = dp.std(ddof=1) / np.sqrt(dp.size) if dp.size > 1 and np.isfinite(dp).all() else float('nan')
+        se = de.std(ddof=1) / np.sqrt(de.size) if de.size > 1 else float('nan')
         print(f"{k:<10} {p.mean():8.3f} {dp.mean():+8.3f} ± {sp:5.3f} {e.mean():9.3f} {de.mean():+8.3f} ± {se:5.3f}")
 
 

@@ -39,6 +39,7 @@ env -u PROTON_USE_OPTISCALER -u PROTON_OPTISCALER_CONFIG \
   --gpu_backend=d3d12 --present_effect=fsr3 --temporal_upscaler=dlss \
   --resolution=3840x2160 --resolution_scale=1 --vsync=false --clock_frame_locked=true \
   --frame_rate_limit=60 --clock_frame_locked_hz=60 --audio_guest_paced=true --audio_mute=true \
+  --sched_deterministic=true --clock_frame_locked_waits=true \
   --log_file="$(winpath "$out/game.log")" \
   --guest_output_dump_prefix="$(winpath "$out/in")" \
   --present_temporal_dump_prefix="$(winpath "$out/out")" \

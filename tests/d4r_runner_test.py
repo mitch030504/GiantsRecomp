@@ -18,6 +18,7 @@ with tempfile.TemporaryDirectory() as tmp:
     gamescope = tmp / 'gamescope'
     gamescope.write_text('''#!/bin/sh
 out=${STEAM_COMPAT_DATA_PATH%/compat}
+printf '%s\\n' "$@" > "$out/argv.txt"
 [ -z "${PROTON_USE_OPTISCALER+x}" ] || exit 5
 [ -z "${PROTON_OPTISCALER_CONFIG+x}" ] || exit 5
 echo 'D3D12Presenter: DLSS 1920x1080 -> 3840x2160' > "$out/game.log"
@@ -42,5 +43,9 @@ exit 124
         finally:
             for line in result.stdout.splitlines():
                 if line.startswith('Artifacts: '):
-                    shutil.rmtree(line.removeprefix('Artifacts: '))
+                    output = Path(line.removeprefix('Artifacts: '))
+                    args = (output / 'argv.txt').read_text().splitlines()
+                    assert '--sched_deterministic=true' in args
+                    assert '--audio_mute=true' in args
+                    shutil.rmtree(output)
 print('d4r runner: false-positive rejection, repeated evaluation, fallback and early-exit rejection passed')

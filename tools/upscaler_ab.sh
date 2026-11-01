@@ -57,6 +57,8 @@ run() {
   timeout -k 5 -s INT "$secs" gamescope --backend headless -W 3840 -H 2160 -w 3840 -h 2160 -- \
     env -u WAYLAND_DISPLAY "${game[@]}" --resolution=3840x2160 --vsync=false \
     --clock_frame_locked=true --guest_output_dump_interval=30 --present_temporal_dump_interval=30 \
+    --sched_deterministic=true --clock_frame_locked_waits=true --clock_frame_locked_hz=60 \
+    --frame_rate_limit=60 --audio_guest_paced=true --audio_mute=true \
     --guest_output_dump_prefix="$dir/in" --present_temporal_dump_prefix="$dir/out" "$@" \
     >"$dir/stdout.log" 2>&1 || true
   if [[ "$target" != linux ]]; then

@@ -81,7 +81,7 @@ cross-compiled Windows build (`tools/windows_cross.sh`).
   The two backends match.
 - **FSR 4.1.2:** the shipped jitter sign is the best of the four by far (+1.5 to +5.8 dB), so FSR 4
   needs no change there. Its absolute numbers swung between 36.4 dB and 42.6 dB across two runs,
-  though. Under Proton, `clock_frame_locked` doesn't make runs repeat exactly (0 of 54 native frames
+  though. Under Proton, `clock_frame_locked` alone doesn't make runs repeat exactly (0 of 54 native frames
   bit-identical, against all of them on native Linux), so the reference and the upscaled run land on
   slightly different moments. Treat the Proton numbers as rough until that's fixed.
 - Run Proton's own `wine` with vkd3d-proton and DXVK loaded (the scripts do this). Wine's builtin
@@ -93,8 +93,8 @@ cross-compiled Windows build (`tools/windows_cross.sh`).
   input replay can get there.
 - Motion vectors from block matching can't separate moving objects from the background well; the
   plan is camera and per-object motion vectors from the game (see `.ai/plans/`).
-- Find what still differs between frame-locked runs under Proton, so the Windows numbers become
-  exact.
+- Enable the deterministic scheduler for frame-locked benchmarks and check native repeatability
+  in each scene before interpreting image-quality numbers (see the d4r results below).
 - Native NGX is only verified to fall back cleanly here (no RTX card): its jitter sign and image quality
   need checking on an RTX GPU with the same A/B. The experimental Proton/d4r test below runs on AMD.
   DLSS 5 on Linux goes through DLSS5VKLayer instead
@@ -131,7 +131,8 @@ uses the executable folder as its working directory. It must select the shim, ra
 The runner defaults to the installed `Proton-GE Latest` (GE-Proton11-11 during this experiment);
 `PROTON_DIR` selects another installation. It invokes the full Proton launcher, sets NVAPI
 identity, and creates a private prefix, saves and synthetic figure directory for every run.
-It uses `audio_mute=true`, matched 60 Hz guest/frame pacing with `audio_guest_paced=true`, a headless
+It uses `audio_mute=true`, `sched_deterministic=true`, matched 60 Hz guest/frame pacing with
+`audio_guest_paced=true`, a headless
 4K surface and 1080p guest rendering. `SDL_AUDIO_DRIVER=dummy` alone did not silence the Windows
 SDL device under Proton in this test. First-time kernel compilation
 can take several minutes. Artifacts are printed under `out/tmp/d4r-run-*`.
@@ -207,7 +208,7 @@ env -u PROTON_USE_OPTISCALER -u PROTON_OPTISCALER_CONFIG -u SDL_AUDIO_DRIVER \
   --clock_frame_locked=false --audio_guest_paced=false --audio_mute=false
 ```
 
-### Approximate reference comparison
+### Initial comparison without deterministic scheduling
 
 The five 60-second runs in `out/tmp/d4r-ab` used a 60 fps cap, 60 Hz frame-locked time,
 guest-paced audio and explicit mute. Compared 18 common title frames, with mean mask coverage 37.1%:
@@ -228,3 +229,37 @@ The final tracked runner also passed a separate 60-second hardware run in
 `out/tmp/d4r-run-dX2XltjY`, recording 55 d4r profile samples without FSR fallback. A 6.144-second
 capture of its 48 kHz stereo output contained only zero samples, verifying explicit mute.
 The original gameplay process was left open throughout the follow-up tests at the user's request.
+
+### Deterministic reference comparison and silent gameplay
+
+On follow-up, adding `sched_deterministic=true` made **22 of 22 native repeats bit-identical**
+under Proton. Both test runners now enable it, use guest-time waits and matched 60 Hz timing,
+and explicitly mute audio. The earlier non-deterministic comparison above is superseded.
+
+Artifacts: `out/tmp/d4r-repeat`. The analyzer skips frames with no visible unmasked edges;
+perfect matches have infinite PSNR, with equal perfect outputs treated as ties. Regression:
+`python3 tests/upscaler_analysis_test.py`.
+
+For steady title frames from guest frame 1800 onward (`title-only/analysis.txt`), 11 common frames
+covered a mean 42.0% mask; 12 of 12 native input repeats were identical:
+
+| Output | Masked PSNR | Edge RMS |
+| --- | ---: | ---: |
+| DLSS K through d4r | 39.315 dB | 9.597 |
+| FSR 3.1.5 | 35.884 dB | 10.311 |
+| Bilinear 1080p | 40.763 dB | 8.256 |
+
+DLSS improved on FSR by 3.431 ± 0.506 dB (standard error), while bilinear still scored better over
+this soft scene's full mask. This establishes a result for the measured title scene, not a general
+gameplay quality advantage. The sky-strip check was 0.49 for the native reference and 0.35 for each
+temporal input against the native 1080p run. Including the title fade gave 19 usable frames:
+DLSS 40.382 dB, FSR 36.453 dB, bilinear 42.191 dB. Native 4K and upscaler images can still differ
+because of rasterization and jitter even when guest frame timing repeats exactly.
+
+At the user's request, the noisy original process was terminated and replaced with a bounded
+silent session in `out/tmp/d4r-run-PDI5lhmx`. It completed ten minutes with 588 d4r profile samples,
+no FSR fallback, and actual Chapter 1 Spyro gameplay inspected at frame 14280. A 6.144-second
+48 kHz stereo capture was entirely zero-valued. This run had matched clocks and guest-paced audio;
+the later deterministic-scheduler change was verified in the separate reference runs. A private
+Pulse null sink provided a second audio safeguard. Test processes and temporary sinks were cleaned
+up afterward; user saves, default audio routing and other applications were preserved.
