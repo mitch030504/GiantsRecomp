@@ -38,6 +38,7 @@
 | Deterministic scheduler step 3: host threads (GPU, vblank, audio, dispatch) on fixed turns + idle/busy virtual frames | done (SDK 4153831): 408/491 buckets match, 11 diverge for good; picture still splits ~7920 | claude-code | 2026-10-31 |
 | Determinism: guest-timed boot, interrupt fixes (SDK 2405954, 20dda51) | replay picture identical, but corrected2026-11-01: recording onlymenus/Battle; actualChapter1loadingstall | claude-code | 2026-10-31 |
 | Determinism: 3 buckets (0xB5F/0xBB2/0xBB3 00000) split intermittently at read ~8065, no visible effect | open (minor) | — | — |
+| KDE audio identity / stutter investigation | mute collision fixed (e725b89), Pulse+PipeWire verified; cutscene audio shortage measured below60FPS, smooth netplay audio still open | Codex | 2026-11-01 |
 | Netplay phase 1 (ENet transport + handshake) | implemented; native pairs + Windows core tests pass; guest runtime gates open | Codex | 2026-11-01 |
 | Netplay phases 2–4 (input sync, portal sync, desync UI) | implemented; paired single-player gameplay reached under Proton; two-player toy/join validation pending; hashes false-positive at read0 | Codex | 2026-11-01 |
 

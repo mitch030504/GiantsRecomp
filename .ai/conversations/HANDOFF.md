@@ -1,12 +1,12 @@
 # Agent Handoff
-Last updated: 2026-11-01 15:51 CET by Codex (/root)
+Last updated: 2026-11-01 16:10 CET by Codex (/root)
 
 ## Current checkpoint
-User authorized maximum unattended progress; latest steering reports stuttery audio.
-Root branch feat/linux-upscalers-netplay: implementation45ccc12, loading/audio-test fix6a67e39.
+User authorized unattended progress; latest steering: investigate stutter and possible KDE taskbar mute.
+Root branch feat/linux-upscalers-netplay: implementation45ccc12, loading/audio-test fix6a67e39; mixer identity fixe725b89.
 SDK giants/linux-vulkan HEAD1bb05c0; portal feat/netplay-figure-control HEAD5278a86.
 ENet pinned2662c0d /v1.3.18. All commits local; no pushes or deployments.
-Latest session: [155155-codex-audio-and-validation.md](sessions/2026-11-01/155155-codex-audio-and-validation.md).
+Latest session: [161019-codex-audio-root-cause.md](sessions/2026-11-01/161019-codex-audio-root-cause.md).
 Earlier investigation: sessions/2026-11-01/151022-codex-windows-readiness-and-loader.md.
 
 ## Implemented
@@ -30,11 +30,17 @@ Native second-toy420s nk9kegqr and second-Spyro300s q2k0hcwu match peer outputs 
 Historical w1/play.inputlog was menus/Battle, not gameplay. Do not reuse its old gameplay claim.
 Memory hashes false-positive at read0; default0. Automatic gameplay desync detection unfinished.
 
-## Audio report
-Owned overlapping test streams muted; original Windows app mute preference restored afterward.
-New test runs use silent dummy audio. No actual audio smoothness fix claimed: guest-paced
-buffers track guest frames and may crackle when rendering falls below/faster than real time.
-Steady real-time listening validation remains open. See latest session and docs/netplay.md.
+## Audio report (confirmed)
+Native game inherited KDE mute=true under generic SDL Application, shared with UnrealEditor.
+Portal initializes SDL audio before runtime driver metadata. e725b89 sets Giants Recompiled
+app-name hint before portal startup; live PulseAudio35s + PipeWire15s checks confirm separate,
+unmuted identity. Unreal remains muted; no unrelated volume/mute edits. Test routes cleaned up.
+Separate stutter measured: single-instance deterministic cutscene at29.24FPS supplied1740 of3572
+required256-sample chunks over19s;1832chunks were zero. At steady60FPS both ordinary and
+scheduled title runs have no measured shortages. Guest-paced production is tied to VdSwap;
+below60FPS cannot feed device in real time. Larger queue cannot solve sustained shortage.
+Netplay audio smoothness remains OPEN. No subjective listening validation or pitch/rate change.
+Latest native+Windows builds pass; CTest259pass/4knownskips, PPC placeholder excluded.
 
 ## Next work
 1. Diagnose synthetic second-figure toy error; verify valid figure loading and actual player2 join.

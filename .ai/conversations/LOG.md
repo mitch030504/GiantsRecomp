@@ -174,3 +174,6 @@ Append-only. Newest at the bottom.
 
 ## 2026-11-01 15:51 CET — Codex (/root) [fix][audio][validation][handoff]
 Root6a67e39: bounded decoder scheduling clears loading slowdown; Windows readiness fixed in SDK a1c2d93. SDK1bb05c0 enables silent dummy audio tests; host queue setting synchronized. Final Linux/Windows builds and built CTest pass (4knownskips, PPC placeholder excluded); Windows1009assertions pass. Single-player paired gameplay reached, synthetic second-toy runs show toy error. Audible stutter remains unresolved; background tests now silent. Session: .ai/conversations/sessions/2026-11-01/155155-codex-audio-and-validation.md.
+
+## 2026-11-01 16:10 CET — Codex (/root) [audio][debug][fix]
+Confirmed native SDL app-name collision inherits KDE mute; e725b89 names game before portal opens audio. Pulse/ PipeWire live checks pass, unrelated apps unchanged. Separate guest-paced starvation measured at29.24FPS:1740/3572buffers,1832zeros; steady60FPStitle has no shortages. Linux/Windows builds and259built checks pass (4knownskips, PPC placeholder excluded). Smooth netplay audio remains open. Session: .ai/conversations/sessions/2026-11-01/161019-codex-audio-root-cause.md.
