@@ -4,6 +4,7 @@
 - `src/giantsrecomp_app.h` — ReXApp subclass: setup hooks, fonts, overlays, portal + netplay tools install
 - `src/hooks/ultrawide_hook.cpp` — projection hooks (ultrawide FOV/HUD, temporal-upscaler jitter)
 - `src/hooks/intro_skip_hook.cpp` — skips logo movies
+- `src/hooks/decompression_hook.cpp` — bounded leaf LZMA batching under deterministic scheduler (Codex)
 - `src/netplay/` — ENet `session.*`, `lockstep.*`, `netplay.*` app integration, `save_snapshot.*`, `figure_sync.*`, plus input record/replay and determinism tools
 - `src/xex_verify.*`, `src/tools/xex_check_cli.cpp` — pinned default.xex SHA-256 check
 - `generated/` — recompiled code (git-ignored except `rexglue.cmake`)
@@ -16,6 +17,7 @@
 - `src/core/clock.cpp`, `include/rex/chrono/clock.h` — guest clock; `clock_frame_locked` (deterministic time), guest-time waits
 - `src/system/guest_scheduler.cpp`, `include/rex/system/guest_scheduler.h` — `sched_deterministic` run token
 - `resources/templates/codegen/pch_h.inja`, `src/codegen/builders/{control_flow,context}.cpp` — REX_LOOP_BACKEDGE preemption
+- `src/core/threading_win.cpp`, `tests/unit/core/threading_readiness_test.cpp` — non-consuming Windows wait readiness and regressions (Codex)
 - `src/system/xobject.cpp` — guest waits (guest-time deadlines, scheduler path, sync_trace_log)
 - `src/ui/d3d12/d3d12_presenter.cpp` — D3D12 presenter (temporal path not yet updated)
 - `src/input/input_system.cpp` — device assignment, state/keystroke filter hook
@@ -31,7 +33,7 @@
 - `tests/` — `xex_verify_test`, `input_log_test`, CLI tests (ctest)
 
 ## Tools
-- `tools/netplay_smoke.py`, `tools/bot/netplay-story.txt` — isolated headless two-peer validation (actual loading blocker documented)
+- `tools/netplay_smoke.py`, `tools/bot/netplay-story.txt` — isolated headless two-peer validation (silent by default; inspect scenes before claiming gameplay)
 - `tasks/plan.md`, `tasks/todo.md` — netplay implementation checklist
 - `thirdparty/enet` — ENet1.3.18 pinned UDP transport
 - `tools/compare_state_hashes.py` — diff two `state_hash_log` runs
@@ -62,6 +64,7 @@
 
 ## Feature Specs / Plans
 - `.ai/conversations/decisions/2026-11-01-netplay-session-boundaries.md` — implemented session/save/figure authority decisions and validation limits
+- `.ai/conversations/decisions/2026-11-01-bounded-decoder-scheduling.md` — leaf decoder batching and audio test isolation (Codex)
 No formal spec system. Active plan: `.ai/plans/splendid-sprouting-goblet.md` (copy of the approved Claude Code plan).
 
 ## Agent Handoff

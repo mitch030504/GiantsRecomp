@@ -166,3 +166,11 @@ Append-only. Newest at the bottom.
 **Task:** Checkpoint verification #handoff #tests
 **Outcome:** Latest native source/fingerprint/license configured+built;10projecttests pass;SDK963assertions pass(234cases,4existing skips). ENet license staged. Authority decision recorded; all owned processes exited. Root remains uncommitted, no pushes.
 ---
+
+## 2026-11-01 15:10 CET — Codex
+**Task:** Windows readiness and loader continuation #bugfix #netplay
+**Outcome:** Root45ccc12 committed; SDKa1c2d93 non-consuming readiness passes46regression/1009total assertions and actual Windows bootread967. Linuxloader has3active LZMAjobs; nextcapturequantifies progress. No pushes.
+---
+
+## 2026-11-01 15:51 CET — Codex (/root) [fix][audio][validation][handoff]
+Root6a67e39: bounded decoder scheduling clears loading slowdown; Windows readiness fixed in SDK a1c2d93. SDK1bb05c0 enables silent dummy audio tests; host queue setting synchronized. Final Linux/Windows builds and built CTest pass (4knownskips, PPC placeholder excluded); Windows1009assertions pass. Single-player paired gameplay reached, synthetic second-toy runs show toy error. Audible stutter remains unresolved; background tests now silent. Session: .ai/conversations/sessions/2026-11-01/155155-codex-audio-and-validation.md.

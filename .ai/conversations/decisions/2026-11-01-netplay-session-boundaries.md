@@ -1,7 +1,7 @@
 # Decision: Boundaries for the first direct-IP netplay session
 Agent: Codex
 Date: 2026-11-01 14:54 CET
-Status: implemented; gameplay validation blocked by runtime scheduler defects
+Status: implemented; single-player paired gameplay reached, full two-player validation pending (Codex update)
 
 Follow the approved lockstep plan. Exchange inputs by player-1 controller-read index because
 that order is fixed under deterministic scheduling. Keep the guest run token while waiting for

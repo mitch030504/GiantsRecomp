@@ -39,10 +39,10 @@
 | Determinism: guest-timed boot, interrupt fixes (SDK 2405954, 20dda51) | replay picture identical, but corrected2026-11-01: recording onlymenus/Battle; actualChapter1loadingstall | claude-code | 2026-10-31 |
 | Determinism: 3 buckets (0xB5F/0xBB2/0xBB3 00000) split intermittently at read ~8065, no visible effect | open (minor) | — | — |
 | Netplay phase 1 (ENet transport + handshake) | implemented; native pairs + Windows core tests pass; guest runtime gates open | Codex | 2026-11-01 |
-| Netplay phases 2–4 (input sync, portal sync, desync UI) | implemented in source; actual gameplay blocked by scheduler; hashes false-positive at read0 | Codex | 2026-11-01 |
+| Netplay phases 2–4 (input sync, portal sync, desync UI) | implemented; paired single-player gameplay reached under Proton; two-player toy/join validation pending; hashes false-positive at read0 | Codex | 2026-11-01 |
 
 ## Blockers
-- Netplay gameplay gate OPEN: prior replay was menus/Battle, not Chapter1. Linux sched_deterministic stalls Chapter1 loading even offline; Windows IsSignaled always-true stub blocks boot. Unraid = lobby/relay only.
+- Netplay remains experimental: Windows readiness fixed (SDK a1c2d93); bounded leaf decoder batching clears Chapter1 loading slowdown. Paired Windows opening/single-player gameplay verified; synthetic second figures trigger toy error on Linux. Full two-player/cross-machine validation, reliable desync detection and smooth guest-paced audio remain open. Unraid = lobby/relay only.
 - FSR 4.1.2 and XeSS ship Windows DLLs only: native Linux keeps FSR 3.1; the Windows build under
   Proton gets them (FSR 4 on Vulkan).
 - DLSS / DLSS 5 can't run here (no RTX card): fallback paths verified only.
@@ -51,3 +51,5 @@
 - Motion vectors from present-time block matching (game-agnostic) first; game camera MVs later.
 - Linux package is a tarball, not AppImage (game writes its toml next to the exe).
 - DLSS via NGX directly (Linux-capable), not Streamline. Frame generation out of scope.
+
+- 2026-11-01 Codex: Windows readiness and decoder scheduling fixes validated; test harness silent by default (SDK 1bb05c0). Both apps build; 263 built CTest entries have no failures (4 skips); Windows SDK 1009 assertions pass. PPC placeholder excluded.

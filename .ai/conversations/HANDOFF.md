@@ -1,58 +1,58 @@
 # Agent Handoff
-Last updated: 2026-11-01 14:54 CET by Codex
+Last updated: 2026-11-01 15:51 CET by Codex (/root)
 
-## Active Work
-Unattended netplay implementation on feat/linux-upscalers-netplay. No owned games/debuggers remain running.
-Latest complete checkpoint: [sessions/2026-11-01/145320-codex-netplay-final-handoff.md](sessions/2026-11-01/145320-codex-netplay-final-handoff.md).
-Root implementation remains UNCOMMITTED, including untracked src/netplay files/tests/tools. Preserve it.
-SDK local HEAD eb3ee67 (giants/linux-vulkan); portal5278a86 (feat/netplay-figure-control); both clean, not pushed.
-ENet added successfully, pinned2662c0d/v1.3.18. Earlier approval blocker cleared.
+## Current checkpoint
+User authorized maximum unattended progress; latest steering reports stuttery audio.
+Root branch feat/linux-upscalers-netplay: implementation45ccc12, loading/audio-test fix6a67e39.
+SDK giants/linux-vulkan HEAD1bb05c0; portal feat/netplay-figure-control HEAD5278a86.
+ENet pinned2662c0d /v1.3.18. All commits local; no pushes or deployments.
+Latest session: [155155-codex-audio-and-validation.md](sessions/2026-11-01/155155-codex-audio-and-validation.md).
+Earlier investigation: sessions/2026-11-01/151022-codex-windows-readiness-and-loader.md.
 
-## What is implemented
-- Direct IPv4 ENet host/join, protocol/game/build handshake, bounded ordered delayed inputs.
-- Host save/settings transfer; strict title-only archives and fresh private client save storage.
-- Software figure requests, host-authoritative progression retention/reinsertion; local-only rumble.
-- Deterministic settings forced/locked, uniform controller capabilities, F8 status and pause-on-error.
-- Responsive async startup; cvar mutations finalized on UI thread. Offline behavior retained.
-- Native+Windows build/test support, smoke harness, docs/settings, ENet license staging.
+## Implemented
+- ENet direct IPv4 host/join with protocol/XEX/source handshake and bounded queues/messages.
+- Ordered delayed inputs; async startup; F8 status/error pause without live-input fallback.
+- Validated title-only host save snapshots; fresh private client storage preserves original saves.
+- Host-authoritative software figure progression, scheduled removals/placements; local rumble.
+- Deterministic guest settings forced/locked; host audio queue synchronized; uniform capabilities.
+- Windows native wait readiness fixed (a1c2d93), five regressions46assertions, real boot proven.
+- Bounded <=64KiB leaf LZMA batching clears Chapter1 scheduler loading slowdown on both platforms.
+- Test harness silent by default through SDL dummy (SDK1bb05c0), --audible opts into playback.
 
-## Evidence (do not overclaim)
-Native10root tests pass; SDK238cases234pass4skip/963assertions. FullCTest has one PPC_NOT_BUILT placeholder.
-Windows app builds; four netplay core tests run successfully underProton (Wine-only link test skip).
-Native420s pair:203identical captured frames/2,738,296shared input bytes; client saves preserved.
-Second pair: client F6API placement appliedslot1atread11onBOTHpeers;198identical frames.
-Both reach Chapter1LOADING, then stall. Actual online gameplay is NOT proven.
-Historical w1/play.inputlog claims of Chapter1gameplay were wrong: inspected frames are menus/Battle.
-Memory hash diagnostic falsely reportsdesyncatread0; default0, automaticgameplaydesync detection unfinished.
+## Evidence and limits
+Final Linux+Windows app builds pass. Built CTest:263 entries,259pass/4knownskips, no failures;
+ppc_tests_NOT_BUILT explicitly excluded. Windows SDK243cases/1009assertions pass (4knownskips).
+Final native30s smoke wxem7917:8identical frames/111896inputbytes/client save preserved.
+Guarded-hook Windows420s pair qyyrzqcg:150identical frames/2027320bytes; f018000 inspected:
+actual Spyro Chapter1 single-player gameplay. Native initial300s reaches opening cutscene.
+Native second-toy420s nk9kegqr and second-Spyro300s q2k0hcwu match peer outputs but show
+"toy has a problem". These do NOT prove two-player gameplay; diagnose fixture/portal next.
+Historical w1/play.inputlog was menus/Battle, not gameplay. Do not reuse its old gameplay claim.
+Memory hashes false-positive at read0; default0. Automatic gameplay desync detection unfinished.
 
-## Next Up (actual blockers)
-1. Linux deterministic scheduler stalls Chapter1 loading, also OFFLINE. Non-scheduler offline reaches real gameplay.
-   Stackout/tmp/netplay-debug/gdb.log: tfbLoadThread sub8225B838 -> sub8225C6C0 -> sub8225F220.
-   Loop-budget yields continue, no rootcauseyet. Capturechild/vtable/memory state next.
-2. Windows scheduler boot never reachesinputread0: threading_win.cpp142 IsSignaled ALWAYS TRUE stub.
-   XObject317/371usesasreadiness; pollersalwaysready preventidlevirtualtimeadvance. Implementnonconsumingreadiness;
-   don'treplacewithconsumingWaitForSingleObject(0). Sourceevidenceinlatest session.
-3. Latest native configure/relink COMPLETE at checkpoint;10root tests pass, SDK963assertions pass.
-   Windows binary predates final CMake fingerprint/license recipe edits; reconfigure/relink before cross-platform checks.
-4. Actualco-op/load/disconnect/LAN/crossmachine validation; memorydesynchashfalsepositives;adaptive delay/rollbacklater.
-5. Rootcommitandpushsubmoduleforks/gitlinks aftervalidation. PortalURLcurrentlyTheBiemGamer,localcommitnotremotelyavailable.
+## Audio report
+Owned overlapping test streams muted; original Windows app mute preference restored afterward.
+New test runs use silent dummy audio. No actual audio smoothness fix claimed: guest-paced
+buffers track guest frames and may crackle when rendering falls below/faster than real time.
+Steady real-time listening validation remains open. See latest session and docs/netplay.md.
 
-## Key Context
-- This desktop: RX9070XT/RADV, clang23; noRTX, so DLSS requiresotherhardware.
-- Configure: cmake --preset linux-amd64-release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-- SDK tests enabled locally(-DREXGLUE_BUILD_TESTS=ON); rununit_tests orbuildppc_tests beforefullCTest.
-- Do not replace runtime .so while owned game tests run. Use headlessgamescope; never screenshotdesktop.
-- Stringflagsneed --flag=value. Testartifactsunderout/tmp/; rootusergameassetsuntouched.
-- Userauthorized unattendedwork. ServerUnraidis lobby/relayonly, not gamehost; no deploymentdone.
-- Linux/upscalerwork largelyimplemented; hardwarevalidation/settingspolish stillpending (seePLAN).
+## Next work
+1. Diagnose synthetic second-figure toy error; verify valid figure loading and actual player2 join.
+2. Longer gameplay, LAN/cross-machine determinism, disconnect/recovery and audio-quality checks.
+3. Reliable gameplay desync detection; raw memory diagnostic still false-positives at boot.
+4. Push accessible SDK/portal forks and root gitlinks when appropriate. Portal URL still points to
+   TheBiemGamer; its local5278a86 commit needs an accessible remote. SDK URL is mitch030504 fork.
+5. Linux/Windows performance parity, RTX DLSS verification and minor upscaler settings polish.
 
-## Recent Completions
-- Codex: ENet/session/input/save/portal/status implementation; adversarial parser/archive tests.
-- Codex SDK commits815f095(date range),e553455(depfiletest),45e989b(YieldThreadWindows),c129d37(inputfilters),eb3ee67(cvarlocks).
-- Codex portal5278a86: FigureControl coordinator for scheduledplacements/removals.
-- Prior sessions: Linux packaging/Wayland/Vulkan fixes; FSR/XeSS/DLSSintegrations andcrossbuildtooling.
-
-## Pending Decisions / limits
-Netplayisexperimental andcurrentlyblockedbyruntimeissues. No claimofplayableonlineco-op.
-NoWANauthentication/encryption,rollback,automaticresync,adaptive delay,matchmakingorrelayimplemented.
-SDKremoteis mitch030504 fork; portalneedsaccessibleforkbeforepushingitsnewcommit.
+## Working context
+- RX9070XT/RADV, clang23; noRTX. User assets under rom; do not modify user saves/figure originals.
+- Native configure: cmake --preset linux-amd64-release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+- Windows: presetwin-amd64-release-xwin; Proton10 used for execution (not a native Windows box).
+- Tests/logs/images under ignored out/tmp. Never screenshot desktop; inspect dumped guest PPMs.
+- Do not overwrite runtime.so during owned game runs. No owned games active at this checkpoint;
+  Wine services may persist. Never kill unrelated games/audio streams.
+- Source-content handshake fingerprint includes toolchain/platform, so different-platform peers
+  may intentionally reject; same-platform cross-machine validation is the next safe target.
+- Unraid is lobby/relay only, not gamehost. No relay, WAN auth/encryption, rollback, resync,
+  adaptive delay, matchmaking or deployment in current scope.
+- Architectural limits: decisions/2026-11-01-bounded-decoder-scheduling.md and netplay-session-boundaries.md.
