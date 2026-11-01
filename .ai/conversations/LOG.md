@@ -206,3 +206,11 @@ SDK68e8702 implements bounded pitch-preserving SoundTouch output; guest scheduli
 ## 2026-11-01 17:53 CET — Mistral Vibe (/root)
 **Task:** Portal fork created by user; push portal + root branches #release
 **Outcome:** Pushed thirdparty/skylanders-portal feat/netplay-figure-control (5278a86) to new fork mitch030504/skylanders-portal, then root feat/linux-upscalers-netplay e51f3e6..ff0227e to fork mitch030504/GiantsRecomp. All gitlinks (SDK 68e8702, portal 5278a86) now resolve on accessible remotes. User note: smoke --audible failed only due to a trailing period in the typed flag; corrected command works. WAN/Windows-build tests deferred by user.
+
+## 2026-11-01 17:56 CET — Mistral Vibe (/root)
+**Task:** How to use the portal + keyboard and controller together #docs #qa
+**Outcome:** Answered from README: portal_mode software (default, F6 picker)/usb/none via F4, toml, or --portal_mode flag; dump real figures in usb mode then use in software mode; keyboard (mnk_mode=true default) and gamepad work simultaneously and merge into player 1, rebind via keybind_*. No file changes beyond this log line.
+
+## 2026-11-01 18:17 CET — Mistral Vibe (/root)
+**Task:** Make the portal work like Omoio/skyportal (user's skyportal-export.zip) #portal #feature
+**Outcome:** Implemented the Cemu SkylanderPortalIPC-compatible server in giantsrecompiled (TCP 127.0.0.1:28014, portal_ipc/portal_ipc_port cvars): hello/status/load/remove/clear/create/hush, verified with skyportal's own portal_client.py against a running game incl. all error cases; game fully accepts IPC-placed figures after boot. hush via new SDK chained input filters (546b31a, pushed), gated off in netplay. Root ae65bf4 pushed to fork with SDK gitlink bump. ctest 1724/1724 pass. Session: sessions/2026-11-01/181747-mistral-vibe-portal-ipc-server.md.

@@ -2,6 +2,7 @@
 
 ## Application Code
 - `src/giantsrecomp_app.h` — ReXApp subclass: setup hooks, fonts, overlays, portal + netplay tools install
+- `src/portal_ipc.cpp/.h` — Omoio/Cemu-compatible portal IPC server (TCP 127.0.0.1:28014): hello/status/load/remove/clear/create/hush; drives the software portal via the F6 path (netplay-synced); hush input filters
 - `src/hooks/ultrawide_hook.cpp` — projection hooks (ultrawide FOV/HUD, temporal-upscaler jitter)
 - `src/hooks/intro_skip_hook.cpp` — skips logo movies
 - `src/hooks/decompression_hook.cpp` — bounded leaf LZMA batching under deterministic scheduler (Codex)
@@ -36,6 +37,7 @@
 
 ## Tools
 - `tools/netplay_smoke.py`, `tools/bot/netplay-story.txt` — isolated headless two-peer validation (silent by default; inspect scenes before claiming gameplay)
+- `tools/portal_ipc_client.py` — client for the portal IPC server (from skyportal's MIT tools)
 - `tasks/plan.md`, `tasks/todo.md` — netplay implementation checklist
 - `thirdparty/enet` — ENet1.3.18 pinned UDP transport
 - `tools/compare_state_hashes.py` — diff two `state_hash_log` runs
