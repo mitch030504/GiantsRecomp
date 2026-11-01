@@ -40,3 +40,27 @@ an all-zero or otherwise invalid figure is accepted onto the portal but shown in
 the Portal of Power has a problem." A figure with a correct block-0 checksum and a valid id/variant
 at their fixed offsets is accepted and played normally, including progress writes back to block 8
 and others during play. See `docs/figures.md` for the figure file format itself.
+
+## External menu IPC (Omoio/Cemu-compatible)
+
+`giantsrecompiled` also serves the line-based portal IPC that Cemu's `SkylanderPortalIPC` (and
+the Omoio/skyportal menu built on it) speaks, so an external portal menu can drive this game's
+portal. It listens on **127.0.0.1 only** (`portal_ipc_port`, default 28014; disable with
+`portal_ipc=false`). One command per TCP connection: send one line (max 4096 bytes), read the
+reply until close; the reply's last line starts with `ok` or `error`. Implemented in
+`src/portal_ipc.cpp`; test with `tools/portal_ipc_client.py`.
+
+| Command | Reply | Effect |
+| --- | --- | --- |
+| `hello` | `ok giantsrecomp-portal 1` | identity |
+| `status` | `slot<N> loaded <id> <variant>` or `slot<N> empty` per slot 0-15, then `ok` | read portal state |
+| `load <slot> <path>` | `ok <slot>` | place a figure file; `-1` = first free slot. Path must be absolute; the file must be exactly 1024 bytes with a valid CRC-16/CCITT-FALSE over the first 0x1E bytes (little-endian at 0x1E). Errors: `invalid slot`, `path must be absolute`, `cannot open file`, `not a skylander file`, `no free slot`, `no software portal`, `cannot place figure` |
+| `remove <slot>` | `ok` | remove the figure; errors: `missing slot`, `invalid slot`, `slot empty` |
+| `clear` | `ok` | remove all figures |
+| `create <id> <variant> <path>` | `ok` | write a new blank figure file (never overwrites); errors: `missing path`, `invalid id`, `invalid variant`, `path must be absolute`, `file exists`, `cannot create file` |
+| `hush on\|off` | `ok` | while on, the game reads a neutral pad (menu open). Ignored during netplay sessions so lockstep stays in sync |
+
+Placements and removals go through the same path as the F6 overlay (`PlaceFigureFromFile` /
+`RemoveFigureFromSlot`), so in a netplay session they are queued and synchronized like any other
+figure change. `status` reports the software portal, or the USB portal's detected figures when
+running in `usb` mode.

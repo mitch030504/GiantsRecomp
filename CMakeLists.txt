@@ -60,6 +60,7 @@ set(GIANTSRECOMP_SOURCES
     src/hooks/intro_skip_hook.cpp
     src/hooks/ultrawide_hook.cpp
     src/localization.cpp
+    src/portal_ipc.cpp
     src/netplay/netplay.cpp
     src/netplay/determinism.cpp
     src/netplay/input_log.cpp

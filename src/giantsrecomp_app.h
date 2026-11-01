@@ -26,6 +26,7 @@
 #include "localization.h"
 #include "netplay/determinism.h"
 #include "netplay/netplay.h"
+#include "portal_ipc.h"
 #include "portal_rex/portal_rex.h"
 #include "xex_verify.h"
 
@@ -71,6 +72,12 @@ class GiantsrecompApp : public rex::ReXApp {
 
   void OnPostSetup() override {
     skylanders::InstallPortal(user_data_root() / "figures");
+    // Omoio/Cemu-compatible portal IPC server (skyportal menu support). Hush must not zero
+    // input during a netplay session -- that would desync the lockstep.
+    giantsrecomp::portal_ipc::SetHushGate([] { return !giantsrecomp::netplay::Enabled(); });
+    giantsrecomp::portal_ipc::Start();
+    giantsrecomp::portal_ipc::InstallHushFilter(
+        static_cast<rex::input::InputSystem*>(runtime()->input_system()));
     giantsrecomp::netplay::Install(
         static_cast<rex::input::InputSystem*>(runtime()->input_system()));
     // XAM reaches the input system the same way: the runtime only stores it by its interface.

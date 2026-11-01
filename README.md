@@ -37,6 +37,8 @@ Pick how you want to use the portal with `portal_mode`. You can set it in the in
 
 **Want to use your real figures on the virtual portal?** Plug in a real portal, press **F6**, and click **Dump to file**. That saves a copy of the figure to your figures folder, and you can use it without the toy afterwards. Dumping only reads the figure, so it won't change anything on it.
 
+**External portal menus (Omoio/skyportal):** the game also serves the Omoio/Cemu-compatible portal IPC on `127.0.0.1:28014` (localhost only; `portal_ipc=false` to disable, `portal_ipc_port` to change the port), so a menu app like [skyportal](https://github.com/Bertrram/omoio) can place, remove and create figures in the game. Try it with `python3 tools/portal_ipc_client.py status` while the game runs. See [docs/portal-protocol.md](docs/portal-protocol.md#external-menu-ipc-omoio-cemu-compatible) for the protocol.
+
 ---
 
 ## Controls
@@ -86,6 +88,8 @@ The easiest way to change settings is to press **F4** in-game. Everything is sav
 | Setting | What it does |
 | --- | --- |
 | `portal_mode` | `"software"`, `"usb"` or `"none"`. See [Portal of Power](#portal-of-power). |
+| `portal_ipc` | Serve the Omoio/Cemu-compatible portal IPC on `127.0.0.1` so external portal menus (skyportal/Omoio) can drive the portal. Default is `true`. |
+| `portal_ipc_port` | TCP port for the portal IPC server. Default is `28014`. |
 | `gpu_backend` | Graphics API: `"auto"` (default, D3D12 on Windows), `"d3d12"` or `"vulkan"`. Windows has both; Linux has Vulkan only. To get D3D12 on Linux, run the Windows build through Proton or Wine. If the chosen one can't start, the game uses the other. You can switch it in F4 → GPU and press **Restart now**. |
 | `gpu_allow_invalid_fetch_constants` | Fixes parts of the scene (or the whole screen) showing up blank. Recommended until I find the real cause. |
 | `resolution` | Window size when the game starts, like `"3440x1440"` or `"4k"`. |

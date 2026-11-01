@@ -5,6 +5,8 @@
 portal_mode = "software"                  # "software", "usb" (real portal), or "none"
 portal_figures_dir = ""                   # empty = "figures" next to your saves
 # portal_figure = "C:\\path\\to\\Skylander.dump"  # loads this dump onto the portal at startup
+portal_ipc = true                         # serve the Omoio/Cemu-compatible portal IPC on 127.0.0.1
+# portal_ipc_port = 28014                 # TCP port for the portal IPC server
 
 ["Graphics"]
 resolution = "1920x1080"                  # startup window size
