@@ -121,6 +121,7 @@ The game's log says whether the layer was found. Without it, or without an NVIDI
 | The game won't start and says it's the wrong version | Only Skylanders Giants **v1.0 (USA/EU)** works. |
 | Parts of the screen, or all of it, are blank | Set `gpu_allow_invalid_fetch_constants = true`. |
 | Overlay text is too small | Raise `ui_scale` in the F4 menu. |
+| No sound on KDE | Check **Giants Recompiled** in the audio mixer. Older native builds shared the **SDL Application** mute setting with other SDL apps. |
 | It's slow or stuttery | Use the **Release** build. Some stutter the first time an effect shows up is normal and gets better the second time. Cutscenes are the heaviest part. |
 | Ultrawide: the picture or HUD looks stretched | Set `resolution` to your monitor's resolution, since that's what the ultrawide fixes use. Cutscene movies still stretch for now. |
 | Linux: the screen has a red tint | Known bug, and it isn't fixed yet. It shows up from the title screen onward. |

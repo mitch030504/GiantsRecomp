@@ -68,6 +68,13 @@ implemented; a fixed delay must cover the connection's latency or gameplay waits
 
 Guest-paced audio preserves simulation determinism but can crackle when the game runs below
 real time, particularly during heavy cutscenes. Audio smoothness is still an experimental limitation.
+At a 60 Hz guest clock, each rendered frame supplies 1/60 second of audio. A sustained 30 FPS
+therefore supplies only half the samples the sound device needs; a larger queue cannot cover that
+ongoing shortfall. Ordinary offline playback uses the sound device's clock instead.
+
+On KDE, the game now appears as **Giants Recompiled** in the audio mixer. Older native builds
+used **SDL Application**, sharing mute/volume preferences with other SDL applications. Muting
+causes silence; it does not account for the measured guest-paced buffer shortages.
 
 For a native Linux two-instance smoke check (requires gamescope and your own extracted game):
 

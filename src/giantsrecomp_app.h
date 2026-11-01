@@ -16,6 +16,8 @@
 #include <optional>
 #include <string>
 
+#include <SDL3/SDL_hints.h>
+
 #include <rex/cvar.h>
 #include <rex/input/input_system.h>
 #include <rex/logging.h>
@@ -56,6 +58,8 @@ class GiantsrecompApp : public rex::ReXApp {
   // void OnShutdown() override {}
 
   void OnPreSetup(rex::RuntimeConfig& config) override {
+    // The portal opens SDL audio first; give desktop mixers a game-specific mute state.
+    SDL_SetHint(SDL_HINT_APP_NAME, "Giants Recompiled");
     // The Xenos GPU plugin renders the Xbox 360 command stream; without it nothing is drawn.
     if (config.gpu_plugin.empty()) config.gpu_plugin = "xenos";
     // Some of the game's text (e.g. the autosave warning dialog) is already resolved by the time
