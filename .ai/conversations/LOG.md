@@ -214,3 +214,7 @@ SDK68e8702 implements bounded pitch-preserving SoundTouch output; guest scheduli
 ## 2026-11-01 18:17 CET — Mistral Vibe (/root)
 **Task:** Make the portal work like Omoio/skyportal (user's skyportal-export.zip) #portal #feature
 **Outcome:** Implemented the Cemu SkylanderPortalIPC-compatible server in giantsrecompiled (TCP 127.0.0.1:28014, portal_ipc/portal_ipc_port cvars): hello/status/load/remove/clear/create/hush, verified with skyportal's own portal_client.py against a running game incl. all error cases; game fully accepts IPC-placed figures after boot. hush via new SDK chained input filters (546b31a, pushed), gated off in netplay. Root ae65bf4 pushed to fork with SDK gitlink bump. ctest 1724/1724 pass. Session: sessions/2026-11-01/181747-mistral-vibe-portal-ipc-server.md.
+
+## 2026-11-01 18:31 CET — Mistral Vibe (/root)
+**Task:** Add a proper in-game GUI for graphics/multiplayer/controls/portal #ui #feature
+**Outcome:** F9 game menu (root c2ab29e, pushed): Graphics tab (resolution/scale/GPU API/frame limit/upscaler+quality/ultrawide/etc.), Multiplayer tab (live session status via new netplay::GetSessionInfo, host/join forms with save+restart, delay/timeout), Controls tab (mnk settings + press-to-capture rebind table for keybind_* cvars), Portal tab (mode, IPC toggle/port). Headless smoke via debug game_menu_autoshow: 50s clean draw, ctest 1724/1724. Session: sessions/2026-11-01/183100-mistral-vibe-game-menu.md.
