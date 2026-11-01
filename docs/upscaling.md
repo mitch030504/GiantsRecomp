@@ -95,6 +95,136 @@ cross-compiled Windows build (`tools/windows_cross.sh`).
   plan is camera and per-object motion vectors from the game (see `.ai/plans/`).
 - Find what still differs between frame-locked runs under Proton, so the Windows numbers become
   exact.
-- DLSS is only verified to fall back cleanly here (no RTX card): its jitter sign and image quality
-  need checking on an RTX GPU with the same A/B. DLSS 5 on Linux goes through DLSS5VKLayer instead
+- Native NGX is only verified to fall back cleanly here (no RTX card): its jitter sign and image quality
+  need checking on an RTX GPU with the same A/B. The experimental Proton/d4r test below runs on AMD.
+  DLSS 5 on Linux goes through DLSS5VKLayer instead
   (see the README).
+
+## d4r under Proton (RX 9070 XT)
+
+Use d4r's **Linux/Proton** release with the Windows build of the game. The Windows d4r package
+uses Windows HIP libraries and is a different installation. The Proton package supplies
+OptiScaler, a matched patched vkd3d-proton, a Wine CUDA bridge, Linux HIP and ZLUDA.
+See [release 0.1.5](https://github.com/countervolts/d4r/releases/tag/v0.1.5) and
+[NGX routing](https://github.com/countervolts/d4r/blob/linux/docs/architecture.md).
+
+Stage a clean copy rather than adding DLLs to your normal build. From the repository root:
+
+```bash
+stage="$PWD/out/tmp/d4r-proton/session"
+mkdir -p "$stage"
+curl -fL -o out/tmp/d4r-proton/d4r-linux.zip \
+  https://github.com/countervolts/d4r/releases/download/v0.1.5/d4r-0.1.5-linux.zip
+echo 'a9c2e455c8eca286cd11bae73061411a2668e9505365b831375331765b4733df  out/tmp/d4r-proton/d4r-linux.zip' | sha256sum -c -
+cp out/build/win-amd64-release-xwin/{giantsrecompiled.exe,rexruntime.dll,rexgpu-xenos.dll,SoundTouch.dll,TracyClient.dll,libxess.dll,amd_fidelityfx_loader_dx12.dll} "$stage/"
+unzip -oq out/tmp/d4r-proton/d4r-linux.zip -d "$stage"
+bash "$stage/install.sh" --no-engine --yes
+tools/d4r_proton.sh "$stage" 600
+```
+
+The installer verifies NVIDIA DLL hashes and caches them; `--no-engine` skips optional standalone
+model generation. This tests model K through NVIDIA's library and ZLUDA. Keep frame generation and
+Ray Reconstruction off. The package's default `NvngxPath=d4r\nvngx.dll` works because the runner
+uses the executable folder as its working directory. It must select the shim, rather than
+`d4r\ngx\_nvngx.dll`, which is NVIDIA's core loaded internally by d4r.
+
+The runner defaults to the installed `Proton-GE Latest` (GE-Proton11-11 during this experiment);
+`PROTON_DIR` selects another installation. It invokes the full Proton launcher, sets NVAPI
+identity, and creates a private prefix, saves and synthetic figure directory for every run.
+It uses `audio_mute=true`, matched 60 Hz guest/frame pacing with `audio_guest_paced=true`, a headless
+4K surface and 1080p guest rendering. `SDL_AUDIO_DRIVER=dummy` alone did not silence the Windows
+SDL device under Proton in this test. First-time kernel compilation
+can take several minutes. Artifacts are printed under `out/tmp/d4r-run-*`.
+
+The runner clears inherited `PROTON_USE_OPTISCALER` and `PROTON_OPTISCALER_CONFIG` for the child.
+Otherwise GE's built-in OptiScaler can intercept NGX before d4r, and the game can report
+"DLSS 1920x1080 -> 3840x2160" while d4r never loads. A successful runner check requires repeated
+`D4R_PROFILE frame=` records in `d4r.log`, the game's DLSS creation message and no FidelityFX
+fallback. Inspect `out*.ppm` too: these checks establish execution, not image quality.
+
+For a bounded Chapter 1 run with a blank synthetic Spyro, add:
+
+```bash
+tools/d4r_proton.sh "$stage" 600 --portal_bot_figure=Spyro --bot_skip_movies=true \
+  "--input_script=Z:${PWD//\//\\}\\tools\\bot\\netplay-story.txt"
+```
+
+Use the input/output dumps with `tools/upscaler_ab_analyze.py` for reference comparisons.
+As with the other Proton measurements, differing guest frames limit numerical quality claims.
+This setup does not establish native RTX parity or DLSS 5 support.
+
+### Observed on 2026-11-01
+
+GE-Proton11-11, d4r 0.1.5 Linux, model K (NVIDIA DLSS 310.7.0, no standalone engine), RX 9070 XT:
+the proxy reached NVIDIA's CUDA feature creation and repeated d4r evaluations at 1920x1080 ->
+3840x2160. A warm title run passed 5,000 evaluations; sampled median GPU evaluation time was
+about 3.5 ms. Chapter 1 gameplay was visually inspected at guest frame 14400 in
+`out/tmp/d4r-run-4bhRxD96`; no FidelityFX fallback occurred. No SDK/runtime modification was needed.
+The title wrapper had a shutdown error after its script was edited during execution; its captured
+frames/profile data remain usable, but that wrapper exit is not a passing automated check.
+The new runner rejects early exits, missing d4r samples and FSR fallback; its regression checks are
+`python3 tests/d4r_runner_test.py`. The completed approximate reference comparison is recorded below.
+
+The original test combined the default 30 fps limiter with `clock_frame_locked_hz=60` and left
+`audio_guest_paced=false`. The user reported severe audio glitches. A live, game-stream-only
+14-second recording found 74.7% of stereo samples repeated exactly from 1024 samples (21.33 ms)
+earlier, with no silent chunks or PipeWire xruns; the second game stream was silent. This is
+consistent with guest audio buffer reuse under mismatched clocks, rather than device underruns.
+Direct runtime cvar inspection was denied by ptrace permissions, so the clock diagnosis is based
+on launch arguments/defaults and remains to be confirmed with a corrected launch. The runner now
+sets matching 60 Hz timing, guest-paced audio and explicit mute for future tests. The active game
+was preserved at the user's request; its startup-only audio mode was not changed live.
+
+Follow-up isolated audio probes kept DLSS active and routed only the probe processes to a private
+null sink. Exact stereo-sample repetition at a 1024-sample lag was 64.0% with matched 60 fps/60 Hz
+and host-paced audio, 9.7% with guest-paced audio, and 0% with ordinary wall-clock timing at 30 fps.
+Each capture contained about 14 seconds of non-silent audio. These probes used the title scene;
+the original 74.7% capture was in gameplay, so the percentages are diagnostic, not a controlled
+sound-quality ranking. Matching the frame cap alone does not solve the problem; guest-paced DSP
+reduces the symptom. Ordinary single-player DLSS playback should leave `clock_frame_locked=false`.
+Do not disable deterministic timing for netplay. A frame-locked mixer/content investigation remains
+open; the existing pitch-preserving output path does not establish correct producer buffers.
+
+For ordinary single-player playback with audio, run the staged copy with wall-clock timing instead
+of the frame-aligned test runner. This uses separate private data from the tests:
+
+```bash
+root="$PWD"
+stage="$root/out/tmp/d4r-proton/session"
+proton="$HOME/.steam/steam/compatibilitytools.d/Proton-GE Latest"
+mkdir -p "$root/out/tmp/d4r-play/compat"
+cd "$stage"
+env -u PROTON_USE_OPTISCALER -u PROTON_OPTISCALER_CONFIG -u SDL_AUDIO_DRIVER \
+  STEAM_COMPAT_DATA_PATH="$root/out/tmp/d4r-play/compat" \
+  STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.steam/steam" \
+  PROTON_FORCE_NVAPI=1 DXVK_NVAPI_GPU_ARCH=AD100 \
+  WINEDLLOVERRIDES='dxgi=n;d3d12=n;d3d12core=n' \
+  "$proton/proton" run "$stage/giantsrecompiled.exe" \
+  "--game_data_root=Z:${root//\//\\}\\rom" \
+  "--user_data_root=Z:${root//\//\\}\\out\\tmp\\d4r-play\\saves" \
+  --portal_ipc=false --gpu_backend=d3d12 --present_effect=fsr3 --temporal_upscaler=dlss \
+  --resolution=3840x2160 --resolution_scale=1 --frame_rate_limit=30 \
+  --clock_frame_locked=false --audio_guest_paced=false --audio_mute=false
+```
+
+### Approximate reference comparison
+
+The five 60-second runs in `out/tmp/d4r-ab` used a 60 fps cap, 60 Hz frame-locked time,
+guest-paced audio and explicit mute. Compared 18 common title frames, with mean mask coverage 37.1%:
+
+| Output | Masked PSNR | Edge RMS |
+| --- | ---: | ---: |
+| DLSS K through d4r | 35.051 dB | 8.912 |
+| FSR 3.1.5 | 34.853 dB | 8.076 |
+| Bilinear 1080p | 37.327 dB | 7.129 |
+
+The DLSS/FSR PSNR difference was only 0.198 ± 0.312 dB (standard error). Native repeatability was
+0 of 23 frames bit-identical; the sky-strip alignment check averaged 4.36 for the native reference
+and 3.76 for DLSS against 0.49 for FSR. Scene timing differences limit these diagnostic numbers;
+they do not establish a DLSS quality advantage. The title comparison image showed no obvious
+corruption. `analysis.txt` and `comparison.png` are retained in that artifact directory.
+
+The final tracked runner also passed a separate 60-second hardware run in
+`out/tmp/d4r-run-dX2XltjY`, recording 55 d4r profile samples without FSR fallback. A 6.144-second
+capture of its 48 kHz stereo output contained only zero samples, verifying explicit mute.
+The original gameplay process was left open throughout the follow-up tests at the user's request.
