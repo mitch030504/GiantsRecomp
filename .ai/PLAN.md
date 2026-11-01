@@ -44,7 +44,7 @@
 | Second-figure "toy has a problem" diagnosis | done: boot-timing artifact (read ~11 rejected; read 300+ accepted); test hook netplay_test_client_figure + smoke --client-figure added (root 2f08d58) | Mistral Vibe | 2026-11-01 |
 | Desync hash false positives | read-0 fixed (netplay_hash_start_read=600); residual = host paths/pointers + shifted heap pointers, pages move per run; netplay_hash_skip_pages added, documented as experimental | Mistral Vibe | 2026-11-01 |
 | SDK fork push | done: giants/linux-vulkan 48aa917..68e8702 pushed to mitch030504/rexglue-sdk | Mistral Vibe | 2026-11-01 |
-| Portal fork + root push | blocked: mitch030504/skylanders-portal repo does not exist on GitHub; create fork, push 5278a86, then push root branch | — | — |
+| Portal fork + root push | done: fork mitch030504/skylanders-portal created by user; portal 5278a86 and root e51f3e6..ff0227e pushed | Mistral Vibe | 2026-11-01 |
 
 ## Blockers
 - Netplay remains experimental: Windows readiness fixed (SDK a1c2d93); bounded leaf decoder batching clears Chapter1 loading slowdown. Paired Windows opening/single-player gameplay verified; synthetic second figures trigger toy error on Linux. Full two-player/cross-machine validation, reliable desync detection remain open; pitch-preserving audio fix implemented, listening/long paired validation pending. Unraid = lobby/relay only.

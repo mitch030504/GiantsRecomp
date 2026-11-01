@@ -194,3 +194,15 @@ SDK68e8702 implements bounded pitch-preserving SoundTouch output; guest scheduli
 ## 2026-11-01 17:44 CET — Mistral Vibe (/root)
 **Task:** 600 s paired co-op validation result #netplay #validation
 **Outcome:** PASS — out/tmp/netplay-smoke-m8eoslip: 180 identical guest frames (through frame 21600, Chapter 1 gameplay), 2431864 shared input bytes, client save preserved, no desync/pause; client figure Bash queued at read 300 and placed in slot 1 at read 311 on both peers. Two-player co-op validated on one machine for ~10 min.
+
+## 2026-11-01 17:46 CET — Mistral Vibe (/root)
+**Task:** Status question: what still needs doing #status
+**Outcome:** Answered from HANDOFF/PLAN: remaining = cross-machine/disconnect validation, subjective audio listening (human), portal fork creation + root push, gameplay-state desync detection, Windows perf parity + RTX DLSS (need hardware), minor upscaler polish. No file changes beyond this log line.
+
+## 2026-11-01 17:50 CET — Mistral Vibe (/root)
+**Task:** Detail remaining user-needed items + DLSS-on-9070XT translation layer question #status #research
+**Outcome:** Detailed the 4 user-needed items (portal fork steps, audio listening, cross-machine LAN, Windows parity). Confirmed via web search: d4r (countervolts) runs NVIDIA DLSS SR on AMD incl. experimental RDNA4/9070 XT under Proton (PROTON_FORCE_NVAPI=1); dxvk-nvapi is the underlying layer; DLSS5VKLayer (already integrated) requires NVIDIA GPU+driver and passes through on AMD; dlssg-to-fsr3/OptiScaler are FG/mod replacements. DLSS can be approximated on the 9070 XT via the Windows build under Proton + d4r. No file changes beyond this log line.
+
+## 2026-11-01 17:53 CET — Mistral Vibe (/root)
+**Task:** Portal fork created by user; push portal + root branches #release
+**Outcome:** Pushed thirdparty/skylanders-portal feat/netplay-figure-control (5278a86) to new fork mitch030504/skylanders-portal, then root feat/linux-upscalers-netplay e51f3e6..ff0227e to fork mitch030504/GiantsRecomp. All gitlinks (SDK 68e8702, portal 5278a86) now resolve on accessible remotes. User note: smoke --audible failed only due to a trailing period in the typed flag; corrected command works. WAN/Windows-build tests deferred by user.

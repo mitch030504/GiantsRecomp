@@ -50,7 +50,7 @@ subjective listening and long paired playback still pending. See newest session 
 1. DONE 2026-11-01 (Mistral Vibe): second-figure "toy has a problem" was a fixture timing artifact — placing at read ~11 during boot is rejected by the game; after boot (read 300+) the figure is fully accepted on both peers (64-block read + save writes, paired smoke PASS). Use --netplay_test_client_figure / smoke --client-figure. Two-player co-op validated on one machine for 10 min; cross-machine still open.
 2. Longer gameplay, LAN/cross-machine determinism, disconnect/recovery and audio-quality checks.
 3. Hash false positives: read-0 fixed via netplay_hash_start_read=600; residual diffs at read 600+ are host paths/pointers and heap pointers shifted between processes (pages move per run) — netplay_hash_skip_pages exists but cannot converge; reliable detection needs gameplay-state hashing (RE offsets). Whole-memory hash stays experimental.
-4. SDK fork pushed (68e8702). Portal 5278a86 and root branch unpushed: create github mitch030504/skylanders-portal fork first, push portal branch, then push root feat/linux-upscalers-netplay.
+4. DONE 2026-11-01 17:53 (Mistral Vibe, fork created by user): SDK giants/linux-vulkan 68e8702, portal feat/netplay-figure-control 5278a86 (new fork mitch030504/skylanders-portal), and root feat/linux-upscalers-netplay e51f3e6..ff0227e all pushed to the mitch030504 forks. All gitlinks resolve on accessible remotes.
 5. Linux/Windows performance parity, RTX DLSS verification and minor upscaler settings polish.
 
 ## Working context
