@@ -18,6 +18,12 @@ def main():
     drive.add_argument('--replay', type=Path, help='Host local input recording; client stays neutral')
     drive.add_argument('--script', type=Path, help='Host frame-based input script')
     parser.add_argument('--client-script', type=Path, help='Optional local input script for player 2')
+    parser.add_argument('--client-figure', default='',
+                        help='Test: client places a blank figure of this Skylander in slot 1 at '
+                             '--client-figure-read (after boot; early placement is rejected by '
+                             'the game with "toy has a problem")')
+    parser.add_argument('--client-figure-read', type=int, default=300,
+                        help='Read index for --client-figure (default 300)')
     parser.add_argument('--hash-interval', type=int, default=0)
     parser.add_argument('--audible', action='store_true', help='Play test audio through the default device')
     args = parser.parse_args()
@@ -68,6 +74,9 @@ def main():
                 command += [f'--netplay_connect=127.0.0.1:{port}']
                 if args.client_script:
                     command += [f'--input_script={args.client_script.resolve()}']
+                if args.client_figure:
+                    command += [f'--netplay_test_client_figure={args.client_figure}',
+                                f'--netplay_test_client_figure_read={args.client_figure_read}']
             log = (folder / 'stdout.log').open('wb')
             files.append(log)
             processes.append(subprocess.Popen(command, cwd=root, env=env, stdout=log,
@@ -103,6 +112,9 @@ def main():
     assert all('Netplay: session ready' in log for log in logs), 'Handshake did not finish'
     assert 'client saves isolated in' in logs[1], 'Client isolation did not run'
     assert all('Netplay: synchronized read 600' in log for log in logs), 'Too short: no 600-read checkpoint'
+    if args.client_figure:
+        assert all('Netplay: player 1 placed figure in slot 1' in log for log in logs), \
+            'Client figure placement was not applied on both peers'
     recordings = [(output / name / 'input.bin').read_bytes() for name in ('host', 'client')]
     shared = min(map(len, recordings))
     assert recordings[0][:shared] == recordings[1][:shared], 'Guest input recordings differ'

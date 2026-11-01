@@ -7,7 +7,9 @@
 #include <map>
 #include <mutex>
 #include <random>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include <rex/cvar.h>
 #include <rex/input/input_system.h>
@@ -39,6 +41,14 @@ REXCVAR_DEFINE_INT32(netplay_timeout_seconds, 60, "Netplay", "Connection/input t
     .range(1, 600).lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_INT32(netplay_hash_interval, 0, "Netplay", "Experimental: memory hash every N reads, 0 disables (known unused-byte differences can falsely report desync).")
     .range(0, 1000000).lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_INT32(netplay_hash_start_read, 600, "Netplay", "Experimental: first controller read at which memory hashing starts. Boot writes host-specific data (timestamps, audio buffers), so hashing from read 0 false-positives.")
+    .range(0, 1000000).lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_STRING(netplay_hash_skip_pages, "", "Netplay", "Experimental: comma-separated hex 4 KiB page addresses to exclude from memory hashing, e.g. 8267D000,B5F2D000. Host-written bytes (paths, pointers, leftover bytes in reused allocations) land on a few stable pages and otherwise false-positive; find them with state_dump_address.")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_STRING(netplay_test_client_figure, "", "Netplay", "Test only: client places a blank figure of this Skylander in slot 1 at netplay_test_client_figure_read.")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_INT32(netplay_test_client_figure_read, 300, "Netplay", "Test only: read index at which netplay_test_client_figure is placed. Must be after boot: a figure placed while the game is still querying the portal at startup is rejected with 'toy has a problem'.")
+    .range(0, 1000000).lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 namespace giantsrecomp::netplay {
 namespace {
@@ -49,7 +59,7 @@ using rex::X_STATUS;
 using skylanders::portal::FigureData;
 constexpr auto kRemoteDevice = rex::input::DeviceId(0x47524E4554504C59ull);
 // These affect guest-visible behavior. Rendering/presentation settings remain local.
-constexpr const char* kSettings[] = {"user_language", "skip_intro", "netplay_hash_interval", "bot_skip_movies", "audio_maxqframes"};
+constexpr const char* kSettings[] = {"user_language", "skip_intro", "netplay_hash_interval", "netplay_hash_start_read", "netplay_hash_skip_pages", "bot_skip_movies", "audio_maxqframes"};
 struct PendingFigure { PortalEvent event; std::optional<fs::path> source; };
 struct State {
   Session session;
@@ -66,6 +76,7 @@ struct State {
   std::array<std::atomic<bool>, 16> blocked_slots{};
   std::map<uint32_t, std::map<int, std::optional<fs::path>>> sources;
   std::atomic<uint32_t> read{0};
+  bool test_figure_done = false;
   std::string error;
 };
 std::atomic<bool> g_cancelled{false};
@@ -130,14 +141,41 @@ bool InitialPortal(InputFrame& initial, std::optional<fs::path>& source, std::st
 }
 
 // Only the run-token holder reads memory. Host pointers/kernel objects and dead stack bytes
-// cannot be compared across processes. Unused bytes elsewhere can still cause false positives.
+// cannot be compared across processes. Unused bytes elsewhere can still cause false positives;
+// netplay_hash_skip_pages excludes the pages where they were observed (see docs/netplay.md).
 uint64_t MemoryHash() {
   auto* memory = rex::system::kernel_state()->memory();
+  std::vector<uint32_t> skip_pages;
+  {
+    const std::string skip = REXCVAR_GET(netplay_hash_skip_pages);
+    size_t start = 0;
+    while (start <= skip.size()) {
+      const auto comma = skip.find(',', start);
+      const auto token = skip.substr(start, comma == std::string::npos ? comma : comma - start);
+      if (!token.empty()) {
+        try {
+          skip_pages.push_back(uint32_t(std::stoul(token, nullptr, 16)) & ~0xFFFu);
+        } catch (const std::exception&) {
+          REXLOG_WARN("netplay_hash_skip_pages: {} isn't a hex page address", token);
+        }
+      }
+      if (comma == std::string::npos) break;
+      start = comma + 1;
+    }
+  }
   uint64_t hash = 0;
   for (uint64_t addr = 0; addr < (1ull << 32);) {
     if ((addr >= 0x30000000 && addr < 0x30200000) ||
         (addr >= 0x70000000 && addr < 0x70600000)) {
       addr = addr < 0x30200000 ? 0x30200000 : 0x70600000;
+      continue;
+    }
+    bool skip = false;
+    for (uint32_t page : skip_pages) {
+      if (addr >= page && addr < uint64_t(page) + 0x1000) { skip = true; break; }
+    }
+    if (skip) {
+      addr = (addr & ~uint64_t(0xFFF)) + 0x1000;
       continue;
     }
     auto* heap = memory->LookupHeap(uint32_t(addr));
@@ -340,7 +378,8 @@ void Install(rex::input::InputSystem* input) {
   for (const char* name : {"sched_deterministic", "clock_frame_locked", "clock_frame_locked_waits",
        "audio_guest_paced", "clock_frame_locked_hz", "clock_no_scaling", "clock_source_raw",
        "video_mode_width", "video_mode_height", "video_mode_refresh_rate", "frame_rate_limit",
-       "present_effect", "portal_mode", "user_language", "skip_intro", "netplay_hash_interval"}) {
+       "present_effect", "portal_mode", "user_language", "skip_intro", "netplay_hash_interval",
+       "netplay_hash_start_read", "netplay_hash_skip_pages"}) {
     if (!rex::cvar::LockFlag(name)) Pause(std::string("Cannot lock required setting: ") + name);
   }
   input->AddDriver(std::make_unique<RemoteDriver>());
@@ -387,6 +426,20 @@ rex::X_RESULT FilterState(uint32_t user, X_INPUT_STATE* pad) {
     // Always expose a connected local pad even when a headless/idle device returned no state.
     {
       std::lock_guard lock(state.mutex);
+      // Test hook: queue a client figure placement at a fixed read, through the same pending
+      // path the F6 control callback uses, so the host resolves and broadcasts it identically.
+      const std::string test_figure = REXCVAR_GET(netplay_test_client_figure);
+      if (!state.host && !state.test_figure_done && !test_figure.empty() &&
+          index == uint32_t(REXCVAR_GET(netplay_test_client_figure_read))) {
+        for (const auto& sky : skylanders::portal::AllSkylanders()) {
+          if (sky.name != test_figure) continue;
+          state.pending[1] = {{1, skylanders::portal::CreateBlankFigure(
+              sky.id, sky.variant, {0x52, 0x45, 0x58, 0x02})}, std::nullopt};
+          state.test_figure_done = true;
+          REXLOG_INFO("Netplay: test figure {} queued for slot 1 at read {}", test_figure, index);
+          break;
+        }
+      }
       for (const auto& [slot, pending] : state.pending) {
         local.portal.push_back(pending.event);
         if (state.host) state.sources[index + state.session.status().delay][slot] = pending.source;
@@ -394,7 +447,8 @@ rex::X_RESULT FilterState(uint32_t user, X_INPUT_STATE* pad) {
       state.pending.clear();
     }
     const auto interval = state.hash_interval;
-    if (interval > 0 && index % uint32_t(interval) == 0) local.hash = MemoryHash();
+    if (interval > 0 && index >= uint32_t(REXCVAR_GET(netplay_hash_start_read)) &&
+        index % uint32_t(interval) == 0) local.hash = MemoryHash();
     std::string error;
     if (!state.lockstep->Advance(local, state.players, error)) Pause(error);
     // Only host-authorized portal events mutate guest state.

@@ -8,6 +8,7 @@
 #include <string>
 #include <type_traits>
 #include <vector>
+#include <ranges>
 
 #include <rex/cvar.h>
 #include <rex/hash.h>
@@ -53,8 +54,9 @@ REXCVAR_DEFINE_INT32(state_hash_start, 0, "Netplay",
     .range(0, 100000000);
 REXCVAR_DEFINE_STRING(state_dump_address, "", "Netplay",
                       "Development: at every state_hash_log checkpoint, also write the 1 MB of "
-                      "guest memory at this hex address to <state_hash_log>.<read index>.bin, to "
-                      "diff a bucket that differs between runs byte by byte.");
+                      "guest memory at each comma-separated hex address to "
+                      "<state_hash_log>.<read index>.<address>.bin, to diff a bucket that differs "
+                      "between runs byte by byte.");
 
 namespace giantsrecomp::netplay {
 
@@ -123,42 +125,46 @@ void WriteStateHashes(std::FILE* out, uint32_t read_index) {
   std::fputc('\n', out);
   std::fflush(out);
 
-  const std::string dump_address = REXCVAR_GET(state_dump_address);
-  if (dump_address.empty()) {
+  const std::string dump_addresses = REXCVAR_GET(state_dump_address);
+  if (dump_addresses.empty()) {
     return;
   }
-  uint32_t address = 0;
-  try {
-    address = uint32_t(std::stoul(dump_address, nullptr, 16)) & ~(kBucketSize - 1);
-  } catch (const std::exception&) {
-    REXLOG_WARN("state_dump_address: {} isn't a hex address", dump_address);
-    return;
-  }
-  // Committed, readable parts only; the rest stays zero, so offsets in the file match addresses.
-  std::vector<uint8_t> bucket(kBucketSize);
-  for (uint64_t addr = address; addr < uint64_t(address) + kBucketSize;) {
-    auto* heap = memory->LookupHeap(uint32_t(addr));
-    rex::memory::HeapAllocationInfo info;
-    if (!heap || !heap->QueryRegionInfo(uint32_t(addr), &info) || !info.region_size) {
-      addr = (addr + 0x10000) & ~uint64_t(0xFFFF);
+  for (const auto& part : std::views::split(dump_addresses, ',')) {
+    const std::string token(part.begin(), part.end());
+    uint32_t address = 0;
+    try {
+      address = uint32_t(std::stoul(token, nullptr, 16)) & ~(kBucketSize - 1);
+    } catch (const std::exception&) {
+      REXLOG_WARN("state_dump_address: {} isn't a hex address", token);
       continue;
     }
-    uint64_t end = std::min<uint64_t>(uint64_t(info.base_address) + info.region_size,
-                                      uint64_t(address) + kBucketSize);
-    if (end <= addr) {
-      break;
+    // Committed, readable parts only; the rest stays zero, so offsets in the file match addresses.
+    std::vector<uint8_t> bucket(kBucketSize);
+    for (uint64_t addr = address; addr < uint64_t(address) + kBucketSize;) {
+      auto* heap = memory->LookupHeap(uint32_t(addr));
+      rex::memory::HeapAllocationInfo info;
+      if (!heap || !heap->QueryRegionInfo(uint32_t(addr), &info) || !info.region_size) {
+        addr = (addr + 0x10000) & ~uint64_t(0xFFFF);
+        continue;
+      }
+      uint64_t end = std::min<uint64_t>(uint64_t(info.base_address) + info.region_size,
+                                        uint64_t(address) + kBucketSize);
+      if (end <= addr) {
+        break;
+      }
+      if ((info.state & rex::memory::kMemoryAllocationCommit) &&
+          (info.protect & rex::memory::kMemoryProtectRead)) {
+        std::memcpy(bucket.data() + (addr - address),
+                    memory->TranslateVirtual<const uint8_t*>(uint32_t(addr)), size_t(end - addr));
+      }
+      addr = end;
     }
-    if ((info.state & rex::memory::kMemoryAllocationCommit) &&
-        (info.protect & rex::memory::kMemoryProtectRead)) {
-      std::memcpy(bucket.data() + (addr - address),
-                  memory->TranslateVirtual<const uint8_t*>(uint32_t(addr)), size_t(end - addr));
+    const std::string path = REXCVAR_GET(state_hash_log) + "." + std::to_string(read_index) + "." +
+                             token + ".bin";
+    if (std::FILE* file = std::fopen(path.c_str(), "wb")) {
+      std::fwrite(bucket.data(), 1, bucket.size(), file);
+      std::fclose(file);
     }
-    addr = end;
-  }
-  const std::string path = REXCVAR_GET(state_hash_log) + "." + std::to_string(read_index) + ".bin";
-  if (std::FILE* file = std::fopen(path.c_str(), "wb")) {
-    std::fwrite(bucket.data(), 1, bucket.size(), file);
-    std::fclose(file);
   }
 }
 

@@ -2,10 +2,19 @@
 
 **Current validation (2026-11-01):** the Windows readiness defect is fixed, and bounded decoder
 batching clears the Chapter1 loading slowdown on both platforms. Paired runs agree through the
-opening scene and into single-player gameplay under Proton. Two-player joining and longer
-cross-machine sessions still need validation. Raw memory hashes can falsely report desync at read0.
-Synthetic second-figure tests currently reach the game's “toy has a problem” screen; matching
-peer outputs in those runs establish synchronization, not working two-player gameplay.
+opening scene and into single-player gameplay under Proton. Two-player co-op is validated on one
+machine: with a second figure placed after boot (see below), both peers accept it (full 64-block
+read plus save writes) and stay frame-identical through Chapter 1 with both players' inputs
+synchronized. Longer cross-machine sessions still need validation. Raw memory hashes can falsely
+report desync (see "Memory desync checking" below).
+
+**Second-figure timing (2026-11-01):** a figure placed while the game is still querying the portal
+during boot (around read 11) is rejected by the game with “toy has a problem” — the game reads
+blocks 0–1 of the new slot and abandons it. The same figure placed after boot (read 300+) is fully
+accepted (all 64 blocks read, save data written). This is game behavior, not a netplay defect; the
+old synthetic tests placed the figure too early. Use `--netplay_test_client_figure=<Skylander>`
+with `--netplay_test_client_figure_read` (default 300) on the client, or
+`tools/netplay_smoke.py --client-figure=Bash`, to place a second figure at a safe read.
 
 Two instances can now start a delay-based lockstep session. This is experimental: extended
 co-op, WAN connections and different-PC determinism still need validation. Both peers need the
@@ -60,11 +69,19 @@ source; remote figures are saved in the host's `figures/giantsrecomp-netplay-*` 
 Client-selected figure files retain their original progression; the host keeps separate authoritative copies by toy identity.
 
 Memory desync checking is **opt-in** with host `--netplay_hash_interval=120`. Known host-only
-kernel-object and stack ranges are excluded, but unexplained unused-byte differences can still
-produce false positives, including at the first controller read. A mismatch pauses both peers when their delayed checkpoints meet.
-With the default 0, input ordering and protocol errors are checked but memory divergence is not
-detected automatically. Rollback, automatic resynchronization and adaptive delay are not
-implemented; a fixed delay must cover the connection's latency or gameplay waits for input.
+kernel-object and stack ranges are excluded, and hashing starts at `--netplay_hash_start_read`
+(default 600) because boot writes host-specific data (timestamps, audio buffers) that false-positives
+at read 0. Even then, whole-memory hashing still false-positives between two processes: host path
+fragments and host pointers copied into guest buffers, leftover bytes in reused allocations, and
+guest heap pointers shifted by allocation-order differences all land on a few 4 KiB pages that can
+move between runs (observed: 0x8267D000, 0xB5F2D000, 0xB62B2000, 0xBB239000, 0xBB368000,
+0xBFBCA000, 0xBFC10000 — find current ones with `state_dump_address`). Exclude them with host
+`--netplay_hash_skip_pages=8267D000,B5F2D000,...`. A mismatch pauses both peers when their delayed
+checkpoints meet. With the default 0, input ordering and protocol errors are checked but memory
+divergence is not detected automatically. Reliable detection needs gameplay-state comparison
+instead of whole memory; the smoke harness's frame comparison is the current validation.
+Rollback, automatic resynchronization and adaptive delay are not implemented; a fixed delay must
+cover the connection's latency or gameplay waits for input.
 
 Guest-paced audio keeps guest callbacks deterministic. Playback now stretches its mixed output
 with SoundTouch when rendering slows, preserving pitch instead of repeatedly inserting silence.
@@ -82,6 +99,10 @@ For a native Linux two-instance smoke check (requires gamescope and your own ext
 ```sh
 python3 tools/netplay_smoke.py --seconds=420 --script=tools/bot/netplay-story.txt
 ```
+
+Add `--client-script=<file>` to drive player 2's controller and `--client-figure=Bash` to have the
+client place a second figure in slot 1 at read 300 (after boot — earlier placement is rejected by
+the game, see above); the harness then also asserts the placement was applied on both peers.
 
 The harness is silent by default through SDL dummy audio; add `--audible` to listen.
 It creates isolated host/client user directories, skips movies with the development-only
