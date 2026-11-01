@@ -48,10 +48,11 @@ These keys work no matter what you're playing with:
 | Key | What it does |
 | --- | --- |
 | **F3** | Shows FPS and frame time |
-| **F4** | Opens the settings overlay |
+| **F4** | Opens the raw settings overlay (every setting) |
 | **F6** | Portal of Power menu (figure picker, or real portal status and dumping) |
 | **F7** | Achievements |
 | **F8** | Netplay status (when a netplay session was launched) |
+| **F9** | Game menu: curated tabs for **Graphics** (resolution, render scale, GPU API, frame limit, upscaler + quality, ultrawide), **Multiplayer** (netplay host/join forms with save-and-restart, live session status), **Controls** (keyboard/mouse emulation plus click-to-rebind key bindings), and **Portal** (mode, external-menu IPC) |
 
 ### Playing with keyboard and mouse
 

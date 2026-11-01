@@ -272,6 +272,23 @@ void ApplyPortal(const InputFrame& frame, int player, uint32_t index) {
 bool Requested() { return REXCVAR_GET(netplay_host) || !REXCVAR_GET(netplay_connect).empty(); }
 bool Enabled() { return g_state.load() && g_state.load()->active.load(); }
 
+SessionInfo GetSessionInfo() {
+  SessionInfo info;
+  auto* state = g_state.load();
+  if (!state) return info;
+  info.active = state->active.load();
+  info.host = state->host;
+  info.read = state->read.load();
+  const auto status = state->session.status();
+  info.ping_ms = status.ping_ms;
+  info.delay = status.delay;
+  {
+    std::lock_guard lock(state->mutex);
+    info.error = state->error.empty() ? status.error : state->error;
+  }
+  return info;
+}
+
 bool Configure(const fs::path& user_root, std::string& error) {
   if (!Requested()) return true;
   if (REXCVAR_GET(netplay_host) && !REXCVAR_GET(netplay_connect).empty()) {

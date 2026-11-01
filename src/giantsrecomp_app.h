@@ -23,6 +23,7 @@
 #include <rex/logging.h>
 #include <rex/rex_app.h>
 
+#include "game_menu.h"
 #include "localization.h"
 #include "netplay/determinism.h"
 #include "netplay/netplay.h"
@@ -147,10 +148,12 @@ class GiantsrecompApp : public rex::ReXApp {
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
     skylanders::RegisterPortalOverlay(drawer);
     giantsrecomp::netplay::RegisterOverlay(drawer);
+    giantsrecomp::gamemenu::RegisterGameMenu(drawer, window(), &app_context(), menu_config_path_);
   }
 
   std::optional<rex::PathConfig> OnFinalizePaths(
       const rex::PathConfig& defaults, std::function<void(rex::PathConfig)> resume) override {
+    menu_config_path_ = defaults.config_path;
     if (!giantsrecomp::netplay::Requested()) return defaults;
     auto* context = &app_context();
     auto alive = startup_alive_;
@@ -205,6 +208,7 @@ class GiantsrecompApp : public rex::ReXApp {
 
  private:
   std::thread netplay_startup_;
+  std::filesystem::path menu_config_path_;
   std::shared_ptr<std::atomic<bool>> startup_alive_ = std::make_shared<std::atomic<bool>>(true);
 
   [[noreturn]] static void Fatal(const std::string& message) {

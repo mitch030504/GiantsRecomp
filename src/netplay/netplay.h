@@ -11,6 +11,17 @@ namespace rex::ui { class ImGuiDrawer; }
 namespace giantsrecomp::netplay {
 bool Requested();
 bool Enabled();
+
+// Live session state for UI (game menu / overlays). active is false when no session is running.
+struct SessionInfo {
+  bool active = false;
+  bool host = false;
+  uint32_t read = 0;
+  uint32_t ping_ms = 0;
+  uint32_t delay = 0;
+  std::string error;
+};
+SessionInfo GetSessionInfo();
 bool Configure(const std::filesystem::path& user_root, std::string& error);
 bool Prepare(rex::PathConfig& paths, std::string& error);
 bool FinishPrepare(std::string& error);
