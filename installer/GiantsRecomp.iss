@@ -22,6 +22,7 @@ WizardStyle=modern
 Source: "staging\giantsrecompiled.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "staging\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "staging\*_license.*"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "staging\*_source.tar.gz"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "staging\xess_third_party_programs.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "staging\giantsrecomp_xexcheck.exe"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "settings_template.toml"; DestDir: "{tmp}"; Flags: dontcopy

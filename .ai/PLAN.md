@@ -38,12 +38,12 @@
 | Deterministic scheduler step 3: host threads (GPU, vblank, audio, dispatch) on fixed turns + idle/busy virtual frames | done (SDK 4153831): 408/491 buckets match, 11 diverge for good; picture still splits ~7920 | claude-code | 2026-10-31 |
 | Determinism: guest-timed boot, interrupt fixes (SDK 2405954, 20dda51) | replay picture identical, but corrected2026-11-01: recording onlymenus/Battle; actualChapter1loadingstall | claude-code | 2026-10-31 |
 | Determinism: 3 buckets (0xB5F/0xBB2/0xBB3 00000) split intermittently at read ~8065, no visible effect | open (minor) | — | — |
-| KDE audio identity / stutter investigation | mute collision fixed (e725b89), Pulse+PipeWire verified; cutscene audio shortage measured below60FPS, smooth netplay audio still open | Codex | 2026-11-01 |
+| KDE audio identity / stutter investigation | mute collision fixed (e725b89), Pulse+PipeWire verified; pitch-preserving output implemented (SDK68e8702); tests/real cutscene improved; startup pair passes, listening/long paired playback pending | Codex | 2026-11-01 |
 | Netplay phase 1 (ENet transport + handshake) | implemented; native pairs + Windows core tests pass; guest runtime gates open | Codex | 2026-11-01 |
 | Netplay phases 2–4 (input sync, portal sync, desync UI) | implemented; paired single-player gameplay reached under Proton; two-player toy/join validation pending; hashes false-positive at read0 | Codex | 2026-11-01 |
 
 ## Blockers
-- Netplay remains experimental: Windows readiness fixed (SDK a1c2d93); bounded leaf decoder batching clears Chapter1 loading slowdown. Paired Windows opening/single-player gameplay verified; synthetic second figures trigger toy error on Linux. Full two-player/cross-machine validation, reliable desync detection and smooth guest-paced audio remain open. Unraid = lobby/relay only.
+- Netplay remains experimental: Windows readiness fixed (SDK a1c2d93); bounded leaf decoder batching clears Chapter1 loading slowdown. Paired Windows opening/single-player gameplay verified; synthetic second figures trigger toy error on Linux. Full two-player/cross-machine validation, reliable desync detection remain open; pitch-preserving audio fix implemented, listening/long paired validation pending. Unraid = lobby/relay only.
 - FSR 4.1.2 and XeSS ship Windows DLLs only: native Linux keeps FSR 3.1; the Windows build under
   Proton gets them (FSR 4 on Vulkan).
 - DLSS / DLSS 5 can't run here (no RTX card): fallback paths verified only.

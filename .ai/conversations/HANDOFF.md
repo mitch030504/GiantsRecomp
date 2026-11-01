@@ -1,12 +1,12 @@
 # Agent Handoff
-Last updated: 2026-11-01 16:10 CET by Codex (/root)
+Last updated: 2026-11-01 16:32 CET by Codex (/root)
 
 ## Current checkpoint
-User authorized unattended progress; latest steering: investigate stutter and possible KDE taskbar mute.
+User authorized unattended progress; latest steering: fix stutter while preserving pitch; checkpoint handoff at5% quota.
 Root branch feat/linux-upscalers-netplay: implementation45ccc12, loading/audio-test fix6a67e39; mixer identity fixe725b89.
-SDK giants/linux-vulkan HEAD1bb05c0; portal feat/netplay-figure-control HEAD5278a86.
+SDK giants/linux-vulkan HEAD68e8702; portal feat/netplay-figure-control HEAD5278a86.
 ENet pinned2662c0d /v1.3.18. All commits local; no pushes or deployments.
-Latest session: [161019-codex-audio-root-cause.md](sessions/2026-11-01/161019-codex-audio-root-cause.md).
+Latest session: [163033-codex-pitch-preserving-audio.md](sessions/2026-11-01/163033-codex-pitch-preserving-audio.md).
 Earlier investigation: sessions/2026-11-01/151022-codex-windows-readiness-and-loader.md.
 
 ## Implemented
@@ -30,19 +30,23 @@ Native second-toy420s nk9kegqr and second-Spyro300s q2k0hcwu match peer outputs 
 Historical w1/play.inputlog was menus/Battle, not gameplay. Do not reuse its old gameplay claim.
 Memory hashes false-positive at read0; default0. Automatic gameplay desync detection unfinished.
 
-## Audio report (confirmed)
-Native game inherited KDE mute=true under generic SDL Application, shared with UnrealEditor.
-Portal initializes SDL audio before runtime driver metadata. e725b89 sets Giants Recompiled
-app-name hint before portal startup; live PulseAudio35s + PipeWire15s checks confirm separate,
-unmuted identity. Unreal remains muted; no unrelated volume/mute edits. Test routes cleaned up.
-Separate stutter measured: single-instance deterministic cutscene at29.24FPS supplied1740 of3572
-required256-sample chunks over19s;1832chunks were zero. At steady60FPS both ordinary and
-scheduled title runs have no measured shortages. Guest-paced production is tied to VdSwap;
-below60FPS cannot feed device in real time. Larger queue cannot solve sustained shortage.
-Netplay audio smoothness remains OPEN. No subjective listening validation or pitch/rate change.
-Latest native+Windows builds pass; CTest259pass/4knownskips, PPC placeholder excluded.
+## Audio fix (latest)
+KDE identity fix e725b89 stays: game has its own Giants Recompiled mixer name; other app mute
+states preserved. Stutter cause: guest-paced production falls behind real device during slow render.
+SDK68e8702 now uses SoundTouch2.4.1 only on mixed device output, preserving pitch. Guest callbacks,
+semaphores/scheduling unchanged; ordinary audio bypasses DSP. Bounded buffers,100ms ready target
+plus lookahead; long stalls can still go silent. Shared library/license/source archive packaged.
+24798assertions/3DSPcases pass standalone native and underProton:440Hz preserved,2/6channels,
+0.35–1.25speed, bursty delivery, bounds and recovery. Final Native/Windows builds pass with SDK68e8702 fingerprint. Portable-copy
+$ORIGIN resolution and shared-library/license/source staging verified. Initial built CTest266entries have no failures,
+4knownBitStreamskips, PPC placeholder excluded.
+250s real cutscene run exits0. At36.28FPS:0zero chunks/4512requests over24s; at42.65FPS:
+22/5452 over29s. Old slow cutscenes had ~35–57%zeros. Host speed differs, so no controlled speedup
+claim.74common before/after guest frames compared, all identical. Final30s startup pair7i6tq29i passes9frames/133064bytes/save preserved;
+subjective listening and long paired playback still pending. See newest session for exact artifacts/remaining checks.
 
 ## Next work
+0. Listen to speech/music and validate longer paired playback after audio fix (startup check passed).
 1. Diagnose synthetic second-figure toy error; verify valid figure loading and actual player2 join.
 2. Longer gameplay, LAN/cross-machine determinism, disconnect/recovery and audio-quality checks.
 3. Reliable gameplay desync detection; raw memory diagnostic still false-positives at boot.

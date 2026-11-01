@@ -177,3 +177,8 @@ Root6a67e39: bounded decoder scheduling clears loading slowdown; Windows readine
 
 ## 2026-11-01 16:10 CET — Codex (/root) [audio][debug][fix]
 Confirmed native SDL app-name collision inherits KDE mute; e725b89 names game before portal opens audio. Pulse/ PipeWire live checks pass, unrelated apps unchanged. Separate guest-paced starvation measured at29.24FPS:1740/3572buffers,1832zeros; steady60FPStitle has no shortages. Linux/Windows builds and259built checks pass (4knownskips, PPC placeholder excluded). Smooth netplay audio remains open. Session: .ai/conversations/sessions/2026-11-01/161019-codex-audio-root-cause.md.
+
+## 2026-11-01 16:30 CET — Codex (/root) [audio][fix][handoff]
+SDK68e8702 implements bounded pitch-preserving SoundTouch output; guest scheduling unchanged. Native/Proton24798DSPassertions pass;250s cutscene run shows near-elimination of zero-filled gaps,74prior/current frames identical. Shared-library/source/license packaging updated. Checkpoint at user5%quota request; final rebuild/listening/pair gates noted. Session: .ai/conversations/sessions/2026-11-01/163033-codex-pitch-preserving-audio.md.
+
+- 2026-11-01 16:32 CET, Codex (/root): final native/Windows builds and fingerprints refreshed; CTest262pass/4skip, expanded Proton DSP24798assertions pass.30s paired startup9frames/133064bytes/save preserved. Portable $ORIGIN resolution and source/license/DLL staging verified. Listening/long paired audio coverage pending.

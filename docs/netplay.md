@@ -66,11 +66,12 @@ With the default 0, input ordering and protocol errors are checked but memory di
 detected automatically. Rollback, automatic resynchronization and adaptive delay are not
 implemented; a fixed delay must cover the connection's latency or gameplay waits for input.
 
-Guest-paced audio preserves simulation determinism but can crackle when the game runs below
-real time, particularly during heavy cutscenes. Audio smoothness is still an experimental limitation.
-At a 60 Hz guest clock, each rendered frame supplies 1/60 second of audio. A sustained 30 FPS
-therefore supplies only half the samples the sound device needs; a larger queue cannot cover that
-ongoing shortfall. Ordinary offline playback uses the sound device's clock instead.
+Guest-paced audio keeps guest callbacks deterministic. Playback now stretches its mixed output
+with SoundTouch when rendering slows, preserving pitch instead of repeatedly inserting silence.
+This operates only on the device output; it does not alter guest audio callbacks or netplay timing.
+The output target is 100 ms of ready audio, plus the processor's lookahead. Long stalls can still
+run out of sound, and sustained extreme slowdowns can produce stretching artifacts. Ordinary
+offline audio follows the sound device directly and bypasses this processing.
 
 On KDE, the game now appears as **Giants Recompiled** in the audio mixer. Older native builds
 used **SDL Application**, sharing mute/volume preferences with other SDL applications. Muting

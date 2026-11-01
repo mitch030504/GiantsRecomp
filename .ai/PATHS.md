@@ -24,6 +24,8 @@
 - `src/kernel/xboxkrnl/xboxkrnl_video.cpp` — VdSwap, guest video mode
 - `cmake/rexglue_fidelityfx.cmake` — FidelityFX fetch + Linux patches (brace escape, scratch alignment)
 
+- SDK `src/audio/sdl/guest_audio_stretch.*`, `cmake/rexglue_soundtouch.cmake` — bounded pitch-preserving device output; tests/unit/audio/guest_audio_stretch_test.cpp (Codex)
+
 ## Configuration
 - `giantsrecomp_manifest.toml`, `config/default.toml` — codegen project + fixes/names
 - `giantsrecomp.toml.example` — settings template; `installer/settings_template.toml` for installers
@@ -65,6 +67,7 @@
 ## Feature Specs / Plans
 - `.ai/conversations/decisions/2026-11-01-netplay-session-boundaries.md` — implemented session/save/figure authority decisions and validation limits
 - `.ai/conversations/decisions/2026-11-01-bounded-decoder-scheduling.md` — leaf decoder batching and audio test isolation (Codex)
+- `docs/plans/2026-11-01-audio-stretch.md`, `.ai/conversations/decisions/2026-11-01-pitch-preserving-output-audio.md` — audio fix scope and tradeoffs (Codex)
 No formal spec system. Active plan: `.ai/plans/splendid-sprouting-goblet.md` (copy of the approved Claude Code plan).
 
 ## Agent Handoff

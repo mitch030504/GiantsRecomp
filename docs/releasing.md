@@ -28,6 +28,11 @@ shared libraries, `giantsrecomp_xexcheck`, `installer/linux-setup.sh` (the Linux
 installer: copies or extracts the user's game into `rom/` after the version check, and writes
 `giantsrecomp.toml`), and the udev rule for a real portal. No game data and no settings file.
 
+The pitch-preserving output processor uses the pinned, replaceable SoundTouch 2.4.1 shared
+library. Packages include `SoundTouch.dll` / `libSoundTouch.so`, `soundtouch_license.txt`, and the
+unmodified `soundtouch_source.tar.gz`. Keep all three together when packaging or redistributing.
+The source archive is fetched from the official Codeberg release with a verified SHA-256.
+
 ## Before publishing, verify
 
 - Fresh, clean Windows VM (no Visual Studio/CMake/Ninja installed) — install with a real ISO, and
