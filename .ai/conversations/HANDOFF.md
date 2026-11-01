@@ -6,7 +6,8 @@ User authorized unattended progress; latest steering: make the portal work like 
 Root branch feat/linux-upscalers-netplay HEAD ae65bf4 — ALL PUSHED to fork mitch030504/GiantsRecomp.
 SDK giants/linux-vulkan HEAD 546b31a — pushed to fork. Portal feat/netplay-figure-control 5278a86 — pushed to new fork mitch030504/skylanders-portal.
 ENet pinned2662c0d /v1.3.18.
-Latest session: [181747-mistral-vibe-portal-ipc-server.md](sessions/2026-11-01/181747-mistral-vibe-portal-ipc-server.md).
+Latest session: [183100-mistral-vibe-game-menu.md](sessions/2026-11-01/183100-mistral-vibe-game-menu.md).
+Also: [181747-mistral-vibe-portal-ipc-server.md](sessions/2026-11-01/181747-mistral-vibe-portal-ipc-server.md).
 Earlier: [173443-mistral-vibe-coop-toy-diagnosis.md](sessions/2026-11-01/173443-mistral-vibe-coop-toy-diagnosis.md), [163033-codex-pitch-preserving-audio.md](sessions/2026-11-01/163033-codex-pitch-preserving-audio.md).
 
 ## Implemented
@@ -52,6 +53,7 @@ subjective listening and long paired playback still pending. See newest session 
 3. Hash false positives: read-0 fixed via netplay_hash_start_read=600; residual diffs at read 600+ are host paths/pointers and heap pointers shifted between processes (pages move per run) — netplay_hash_skip_pages exists but cannot converge; reliable detection needs gameplay-state hashing (RE offsets). Whole-memory hash stays experimental.
 4. DONE 2026-11-01 (Mistral Vibe, fork created by user): SDK, portal (new fork mitch030504/skylanders-portal) and root branches all pushed to the mitch030504 forks; gitlinks resolve. Latest: root ae65bf4, SDK 546b31a.
 6. DONE 2026-11-01 (Mistral Vibe): portal IPC server — the game now speaks the Omoio/Cemu SkylanderPortalIPC protocol on 127.0.0.1:28014 (portal_ipc/portal_ipc_port), so skyportal/Omoio menus can drive the portal (hello/status/load/remove/clear/create/hush). Verified with skyportal's own client; placements sync in netplay; hush gated off in netplay. See src/portal_ipc.cpp, tools/portal_ipc_client.py, docs/portal-protocol.md.
+7. DONE 2026-11-01 (Mistral Vibe): F9 in-game menu (root c2ab29e) with Graphics / Multiplayer / Controls / Portal tabs — curated graphics settings, netplay host/join forms with save+restart + live status, press-to-capture key rebinding, portal mode + IPC. Headless smoke clean; ctest 1724/1724.
 5. Linux/Windows performance parity, RTX DLSS verification and minor upscaler settings polish.
 
 ## Working context
