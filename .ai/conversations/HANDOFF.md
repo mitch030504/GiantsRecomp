@@ -1,13 +1,13 @@
 # Agent Handoff
-Last updated: 2026-11-01 16:32 CET by Codex (/root)
+Last updated: 2026-11-01 17:34 CET by Mistral Vibe (/root)
 
 ## Current checkpoint
 User authorized unattended progress; latest steering: fix stutter while preserving pitch; checkpoint handoff at5% quota.
-Root branch feat/linux-upscalers-netplay: implementation45ccc12, loading/audio-test fix6a67e39; mixer identity fixe725b89.
-SDK giants/linux-vulkan HEAD68e8702; portal feat/netplay-figure-control HEAD5278a86.
-ENet pinned2662c0d /v1.3.18. All commits local; no pushes or deployments.
-Latest session: [163033-codex-pitch-preserving-audio.md](sessions/2026-11-01/163033-codex-pitch-preserving-audio.md).
-Earlier investigation: sessions/2026-11-01/151022-codex-windows-readiness-and-loader.md.
+Root branch feat/linux-upscalers-netplay: audio fix2fc3789, co-op test hook + hash cvars2f08d58 (local, unpushed).
+SDK giants/linux-vulkan HEAD68e8702 — PUSHED to fork (48aa917..68e8702). Portal feat/netplay-figure-control HEAD5278a86 — still local: no accessible remote (mitch030504/skylanders-portal does not exist on GitHub; create the fork, push, then push root).
+ENet pinned2662c0d /v1.3.18.
+Latest session: [173443-mistral-vibe-coop-toy-diagnosis.md](sessions/2026-11-01/173443-mistral-vibe-coop-toy-diagnosis.md).
+Earlier: [163033-codex-pitch-preserving-audio.md](sessions/2026-11-01/163033-codex-pitch-preserving-audio.md), sessions/2026-11-01/151022-codex-windows-readiness-and-loader.md.
 
 ## Implemented
 - ENet direct IPv4 host/join with protocol/XEX/source handshake and bounded queues/messages.
@@ -46,12 +46,11 @@ claim.74common before/after guest frames compared, all identical. Final30s start
 subjective listening and long paired playback still pending. See newest session for exact artifacts/remaining checks.
 
 ## Next work
-0. Listen to speech/music and validate longer paired playback after audio fix (startup check passed).
-1. Diagnose synthetic second-figure toy error; verify valid figure loading and actual player2 join.
+0. Listen to speech/music and validate longer paired playback after audio fix (600 s paired co-op PASS: out/tmp/netplay-smoke-m8eoslip, 180 identical frames / 2431864 input bytes; subjective listening still human-only).
+1. DONE 2026-11-01 (Mistral Vibe): second-figure "toy has a problem" was a fixture timing artifact — placing at read ~11 during boot is rejected by the game; after boot (read 300+) the figure is fully accepted on both peers (64-block read + save writes, paired smoke PASS). Use --netplay_test_client_figure / smoke --client-figure. Two-player co-op validated on one machine for 10 min; cross-machine still open.
 2. Longer gameplay, LAN/cross-machine determinism, disconnect/recovery and audio-quality checks.
-3. Reliable gameplay desync detection; raw memory diagnostic still false-positives at boot.
-4. Push accessible SDK/portal forks and root gitlinks when appropriate. Portal URL still points to
-   TheBiemGamer; its local5278a86 commit needs an accessible remote. SDK URL is mitch030504 fork.
+3. Hash false positives: read-0 fixed via netplay_hash_start_read=600; residual diffs at read 600+ are host paths/pointers and heap pointers shifted between processes (pages move per run) — netplay_hash_skip_pages exists but cannot converge; reliable detection needs gameplay-state hashing (RE offsets). Whole-memory hash stays experimental.
+4. SDK fork pushed (68e8702). Portal 5278a86 and root branch unpushed: create github mitch030504/skylanders-portal fork first, push portal branch, then push root feat/linux-upscalers-netplay.
 5. Linux/Windows performance parity, RTX DLSS verification and minor upscaler settings polish.
 
 ## Working context

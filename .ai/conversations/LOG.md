@@ -182,3 +182,15 @@ Confirmed native SDL app-name collision inherits KDE mute; e725b89 names game be
 SDK68e8702 implements bounded pitch-preserving SoundTouch output; guest scheduling unchanged. Native/Proton24798DSPassertions pass;250s cutscene run shows near-elimination of zero-filled gaps,74prior/current frames identical. Shared-library/source/license packaging updated. Checkpoint at user5%quota request; final rebuild/listening/pair gates noted. Session: .ai/conversations/sessions/2026-11-01/163033-codex-pitch-preserving-audio.md.
 
 - 2026-11-01 16:32 CET, Codex (/root): final native/Windows builds and fingerprints refreshed; CTest262pass/4skip, expanded Proton DSP24798assertions pass.30s paired startup9frames/133064bytes/save preserved. Portable $ORIGIN resolution and source/license/DLL staging verified. Listening/long paired audio coverage pending.
+
+## 2026-11-01 16:33 CET — Mistral Vibe
+**Task:** Status question: what is done vs remaining #status
+**Outcome:** Answered from HANDOFF/PLAN/latest session: Linux port + upscalers + netplay phases 0-4 + audio pitch fix implemented and largely verified; remaining = listening/long paired audio, second-toy error, cross-machine determinism, desync detection, pushes, perf parity/RTX tests. No file changes.
+
+## 2026-11-01 17:34 CET — Mistral Vibe (/root)
+**Task:** Continue next work: second-figure toy error, hash false positives, pushes #netplay #bugfix
+**Outcome:** Toy error root-caused: figure placed at read 11 during boot is rejected by the game (reads blocks 0-1, abandons); after boot it is fully accepted (64 reads + save writes) — fixture timing artifact, not a netplay bug. Added netplay_test_client_figure/_read cvars + smoke --client-figure (root 2f08d58); paired co-op PASS twice via standard harness. Hash false positives at read 600 traced to host paths/pointers + shifted heap pointers; added netplay_hash_start_read (600) and netplay_hash_skip_pages cvars, documented limits. Pushed SDK giants/linux-vulkan 48aa917..68e8702 to fork. Portal fork repo does not exist on GitHub, so portal 5278a86 and root branch remain unpushed. 600s co-op run in progress. Session: sessions/2026-11-01/173443-mistral-vibe-coop-toy-diagnosis.md.
+
+## 2026-11-01 17:44 CET — Mistral Vibe (/root)
+**Task:** 600 s paired co-op validation result #netplay #validation
+**Outcome:** PASS — out/tmp/netplay-smoke-m8eoslip: 180 identical guest frames (through frame 21600, Chapter 1 gameplay), 2431864 shared input bytes, client save preserved, no desync/pause; client figure Bash queued at read 300 and placed in slot 1 at read 311 on both peers. Two-player co-op validated on one machine for ~10 min.
