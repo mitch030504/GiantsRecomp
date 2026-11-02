@@ -479,4 +479,174 @@ int main() {
     store_and_swap<uint32_t>(base + 184, 740);
   }));
   CHECK(refills == 3 && saw_threshold);
+
+  // Last-applied-world-transform channel. 8232F468 is the only state-1 caller of
+  // 822F5CE0 and passes attribute + 16 as r5; the capture copies exactly those 64
+  // bytes. The RE chain is in engine_provenance.h.
+  CHECK(kWorldTransformState == 1 && kWorldAttributeMatrix == 16 && kWorldMatrixWords == 16);
+  // A transform row is joined only where the draw already resolved an instance:
+  // a non-list draw or an unresolved path has nothing to join, and instance 0 is
+  // the absence of identity, not one.
+  CHECK(TransformRowAttributed(Reason::resolved, 5));
+  CHECK(TransformRowAttributed(Reason::direct_apply, 5));
+  CHECK(!TransformRowAttributed(Reason::resolved, 0));
+  CHECK(!TransformRowAttributed(Reason::unknown_caller, 5));
+  CHECK(!TransformRowAttributed(Reason::missing_traversal, 5));
+  CHECK(!TransformRowAttributed(Reason::ambiguous_path, 5));
+  CHECK(!TransformRowAttributed(Reason::pointer_mismatch, 5));
+  CHECK(!TransformRowAttributed(Reason::retired_lifetime, 5));
+
+  // The channel needs the opt-in flag AND the existing frame window; the flag is
+  // checked first so a default-off run pays one cvar read.
+  CHECK(!TransformSelected(false, 0, 1, 0));
+  CHECK(!TransformSelected(false, 100, 8, 103));
+  CHECK(!TransformSelected(true, -1, 1, 0));
+  CHECK(TransformSelected(true, 100, 8, 100) && TransformSelected(true, 100, 8, 107));
+  CHECK(!TransformSelected(true, 100, 8, 99) && !TransformSelected(true, 100, 8, 108));
+
+  // Matrix capture is bit-exact and reproduces the guest's 16-byte `lvx128` mask.
+  std::vector<uint8_t> matrix_fixture(4096, 0);
+  auto* matrix_base = matrix_fixture.data();
+  for (uint32_t i = 0; i < kWorldMatrixWords; ++i)
+    store_and_swap<uint32_t>(matrix_base + 1024 + i * 4, 0x3F800000u + i);
+  const auto capture = ReadWorldMatrix(matrix_base, 1024);
+  CHECK(capture.present && capture.aligned && capture.address == 1024);
+  for (uint32_t i = 0; i < kWorldMatrixWords; ++i)
+    CHECK(capture.matrix[i] == 0x3F800000u + i);
+  // A misaligned pointer reads the same 64 bytes the guest read, and says so.
+  const auto masked = ReadWorldMatrix(matrix_base, 1024 + 8);
+  CHECK(masked.present && !masked.aligned && masked.address == 1024);
+  CHECK(masked.matrix == capture.matrix);
+  CHECK(!ReadWorldMatrix(matrix_base, 0).present);
+  CHECK(!ReadWorldMatrix(matrix_base, UINT32_MAX - 15).present);
+  CHECK(!ReadWorldMatrix(matrix_base, UINT32_MAX - 60).present);
+  CHECK(MatrixHash(capture.matrix) == MatrixHash(masked.matrix));
+  auto changed_matrix = capture.matrix;
+  changed_matrix[15] ^= 1;
+  CHECK(MatrixHash(changed_matrix) != MatrixHash(capture.matrix));
+
+  // Capture state machine: only the state-1 apply writes, age counts geometry
+  // applications in between, and a draw before any apply never fabricates one.
+  TransformCapture world;
+  auto world_idle = world.Snapshot(10);
+  CHECK(!world_idle.applied && !world_idle.present && !world_idle.fresh);
+  CHECK(world_idle.applies == 0);
+  // State 0 (8232F500) is not the world slot and must not update the capture.
+  CHECK(!world.Apply(0, capture, 0xF000, 10));
+  CHECK(world.Applies() == 0 && world.Age() == 0);
+  auto world_untouched = world.Snapshot(10);
+  CHECK(!world_untouched.applied && !world_untouched.present);
+  CHECK(world_untouched.attribute == 0 && !world_untouched.fresh);
+
+  CHECK(world.Apply(kWorldTransformState, capture, 0x2000, 10));
+  auto world_applied = world.Snapshot(10);
+  CHECK(world_applied.applied && world_applied.present && world_applied.aligned);
+  CHECK(world_applied.attribute == 0x2000 && world_applied.frame == 10);
+  CHECK(world_applied.applies == 1);
+  CHECK(world_applied.matrix == capture.matrix);  // bit-exact copy of the guest bytes
+  CHECK(MatrixHash(world_applied.matrix) == MatrixHash(capture.matrix));
+  CHECK(world_applied.age == 0 && world_applied.fresh);
+
+  // The same matrix carried into the next guest frame is not fresh.
+  CHECK(!world.Snapshot(11).fresh);
+
+  // Age counts applications since the apply; only a state-1 apply resets it.
+  world.Advance();
+  world.Advance();
+  auto world_carried = world.Snapshot(10);
+  CHECK(world_carried.age == 2 && !world_carried.fresh);
+  CHECK(world_carried.matrix == world_applied.matrix && world_carried.attribute == 0x2000);
+  CHECK(!world.Apply(0, capture, 0x3000, 10));
+  auto still_world_carried = world.Snapshot(10);
+  CHECK(still_world_carried.age == 2 && still_world_carried.applies == 1);
+  CHECK(still_world_carried.attribute == 0x2000 && !still_world_carried.fresh);
+  CHECK(still_world_carried.matrix == world_applied.matrix);
+  CHECK(still_world_carried.frame == 10);
+
+  std::vector<uint8_t> second_fixture(4096, 0);
+  for (uint32_t i = 0; i < kWorldMatrixWords; ++i)
+    store_and_swap<uint32_t>(second_fixture.data() + 512 + i * 4, 0x40000000u + i);
+  const auto second_read = ReadWorldMatrix(second_fixture.data(), 512);
+  CHECK(world.Apply(kWorldTransformState, second_read, 0x4000, 10));
+  auto world_reset = world.Snapshot(10);
+  CHECK(world_reset.applies == 2 && world_reset.age == 0 && world_reset.fresh);
+  CHECK(world_reset.attribute == 0x4000 && world_reset.matrix == second_read.matrix);
+  CHECK(MatrixHash(world_reset.matrix) == MatrixHash(second_read.matrix));
+
+  // An unreadable matrix is still an apply (age resets) but has nothing to claim:
+  // no present matrix, no freshness, and the row stops before the matrix tail.
+  CHECK(world.Apply(kWorldTransformState, MatrixCapture{}, 0x5000, 10));
+  auto unreadable_snapshot = world.Snapshot(10);
+  CHECK(unreadable_snapshot.applied && !unreadable_snapshot.present);
+  CHECK(unreadable_snapshot.age == 0 && !unreadable_snapshot.fresh);
+  CHECK(unreadable_snapshot.applies == 3);
+
+  // Row format: the drawing instance, the drawing node, and an honest age/fresh.
+  Occurrence drawn;
+  drawn.instance = 4242;
+  drawn.path.push_back({0x1000, 1});
+  drawn.path.push_back({0x2000, 2});
+  std::vector<uint8_t> row_fixture(4096, 0);
+  const uint32_t identity_words[16] = {
+      0x3F800000u, 0, 0, 0, 0, 0x3F800000u, 0, 0,
+      0, 0, 0x3F800000u, 0, 0x3F800000u, 0, 0, 0x3F800000u};
+  for (uint32_t i = 0; i < kWorldMatrixWords; ++i)
+    store_and_swap<uint32_t>(row_fixture.data() + 64 + i * 4, identity_words[i]);
+  const auto identity = ReadWorldMatrix(row_fixture.data(), 64);
+  TransformCapture row_capture;
+  CHECK(row_capture.Apply(kWorldTransformState, identity, 0x2000, 12));
+  fmt::memory_buffer row;
+  FormatTransformRow(row, 12, drawn, 0xABC00000, row_capture.Snapshot(12));
+  const std::string text(row.data(), row.size());
+  CHECK(text.starts_with("engine_trace transform frame=12 instance=4242 part=0 node=00002000 "));
+  CHECK(text.find(" device=ABC00000 attribute=00002000 depth=2 fresh=1 age=0 aligned=true "
+                  "matrix_hash=") != std::string::npos);
+  CHECK(text.find(fmt::format("{:016X}", MatrixHash(identity.matrix))) != std::string::npos);
+  CHECK(text.find(" m00=1 m01=0 m02=0 m03=0 m10=0 m11=1 m12=0 m13=0 "
+                  "m20=0 m21=0 m22=1 m23=0 m30=1 m31=0 m32=0 m33=1") != std::string::npos);
+  // The row ends on the sixteenth element: nothing follows the matrix.
+  CHECK(text.size() >= 6 && text.compare(text.size() - 6, 6, " m33=1") == 0);
+
+  // A carry-over row reports age, not freshness, and keeps the same numbers.
+  row_capture.Advance();
+  FormatTransformRow(row, 12, drawn, 0xABC00000, row_capture.Snapshot(12));
+  const std::string world_carried_text(row.data(), row.size());
+  CHECK(world_carried_text.find("fresh=0 age=1 aligned=true") != std::string::npos);
+  CHECK(world_carried_text.find("attribute=00002000") != std::string::npos);
+  CHECK(world_carried_text.find(fmt::format("{:016X}", MatrixHash(identity.matrix))) !=
+        std::string::npos);
+
+  // No state-1 apply at all: fresh=0 and age unset, with no matrix tail, so a
+  // reader cannot mistake zeros for a transform.
+  TransformCapture never;
+  FormatTransformRow(row, 12, drawn, 0xABC00000, never.Snapshot(12));
+  const std::string never_text(row.data(), row.size());
+  CHECK(never_text.find("fresh=0 age=-") != std::string::npos);
+  CHECK(never_text.find("matrix_hash=") == std::string::npos);
+  CHECK(never_text.find(" m0") == std::string::npos);
+  CHECK(never_text.find("aligned=") == std::string::npos);
+  // A frame with no apply still names the drawing instance and node.
+  CHECK(never_text.find("instance=4242") != std::string::npos);
+  CHECK(never_text.find("node=00002000 device=ABC00000 attribute=00000000 depth=2") !=
+        std::string::npos);
+  // An unreadable apply resets the age but prints no matrix either.
+  FormatTransformRow(row, 12, drawn, 0xABC00000, unreadable_snapshot);
+  const std::string unreadable_text(row.data(), row.size());
+  CHECK(unreadable_text.find("fresh=0 age=0") != std::string::npos);
+  CHECK(unreadable_text.find("matrix_hash=") == std::string::npos);
+
+  // The per-frame row budget stops at the limit and reports exhaustion once.
+  TransformBudget budget;
+  budget.BeginFrame(5, 2);
+  CHECK(budget.Limit() == 2);
+  CHECK(budget.Take() && budget.Take());
+  CHECK(budget.Emitted() == 2 && budget.Skipped() == 0);
+  CHECK(!budget.Take());
+  CHECK(budget.Emitted() == 2 && budget.Skipped() == 1);
+  CHECK(budget.ReportSkip());
+  CHECK(!budget.ReportSkip());
+  budget.BeginFrame(6, 2);  // a new frame resets the budget
+  CHECK(budget.Emitted() == 0 && budget.Skipped() == 0 && budget.Take());
+  budget.BeginFrame(6, 3);  // a changed limit also resets
+  CHECK(budget.Emitted() == 0 && budget.Limit() == 3 && budget.Take());
 }

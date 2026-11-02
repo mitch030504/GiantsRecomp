@@ -1,13 +1,17 @@
 #pragma once
 
+#include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <set>
 #include <tuple>
 #include <unordered_map>
 #include <vector>
+#include <fmt/format.h>
 #include <rex/memory/utils.h>
 
 namespace giantsrecomp::engine_trace {
@@ -448,5 +452,213 @@ class DirectApply {
   std::vector<DirectFrame> frames_;
   uint32_t dropped_ = 0;
 };
+
+// ---------------------------------------------------------------------------
+// Last applied world transform (822F5CE0, state 1)
+// ---------------------------------------------------------------------------
+// RE, generated/default (git-ignored) — every step below is read from the PPC:
+//
+//  8232F468(attribute, device) tail-calls 822F5CE0(device, 1, attribute + 16) and
+//    is the only state-1 caller (recomp.79.cpp:12241-12253); 822F5CE0 stores the
+//    four 16-byte rows it reads from r5 at device + (1 << 6) + 736
+//    (recomp.70.cpp:11616-11674), masking every load address to 16 bytes.
+//
+// Binding at attribute-build time does not work: 82199260 returns early unless
+// [node+32] is non-null (recomp.79.cpp:729-736), so it builds a world attribute
+// only for container nodes, never for the drawing leaf. Measured over one
+// capture: 59 transform instances against 303 provenance instances, intersection
+// 0; every transform node sat at path position 1; 0 of 96 draws whose instance
+// was a root path ever got a row, and 1592 applications (199/frame, 72%) were
+// unmatched because `instance` is keyed on the whole token path and a container
+// id can never equal a leaf id.
+//
+// So the channel no longer binds. It keeps the last state-1 matrix this thread
+// applied and joins it to the instance the draw already resolved (8232E5E0).
+// Nothing here claims the matrix belongs to that instance: `age` counts geometry
+// applications since the apply and `fresh` is set only when nothing intervened in
+// the same guest frame. A state-1 apply that belongs to another instance is the
+// case nothing can rule out; it is reported through age, not hidden.
+inline constexpr uint32_t kWorldTransformState = 1;
+inline constexpr uint32_t kWorldAttributeMatrix = 16;
+inline constexpr size_t kWorldMatrixWords = 16;
+
+using WorldMatrix = std::array<uint32_t, kWorldMatrixWords>;
+
+// FNV-1a over the 64 raw bytes. An analyzer can compare frames for motion without
+// parsing 16 floats, and the comparison is exact instead of approximate.
+inline uint64_t MatrixHash(const WorldMatrix& matrix) {
+  uint64_t hash = 0xcbf29ce484222325ull;
+  for (auto word : matrix) {
+    for (unsigned i = 0; i < 4; ++i) {
+      hash ^= (word >> (i * 8)) & 0xFFu;
+      hash *= 0x100000001b3ull;
+    }
+  }
+  return hash;
+}
+
+struct MatrixCapture {
+  WorldMatrix matrix{};
+  uint32_t address = 0;
+  bool present = false;
+  bool aligned = false;
+};
+
+// The guest loads each row with `lvx128`, which masks the effective address to 16
+// bytes (recomp.70.cpp:11635), so a misaligned r5 does not read the bytes a plain
+// pointer read would. Read what the guest used and say whether masking moved the
+// address, rather than silently reporting a matrix that was never applied.
+inline MatrixCapture ReadWorldMatrix(const uint8_t* base, uint32_t address) {
+  MatrixCapture capture;
+  if (!address) return capture;
+  capture.address = address & ~uint32_t(15);
+  capture.aligned = capture.address == address;
+  if (!GuestRange(capture.address, kWorldMatrixWords, 4)) return capture;
+  for (size_t i = 0; i < kWorldMatrixWords; ++i)
+    capture.matrix[i] = Guest32(base, capture.address + uint32_t(i) * 4);
+  capture.present = true;
+  return capture;
+}
+
+// What one draw can say about the last world transform applied on its thread.
+// `applied` is false until a state-1 apply has been seen at all, so a row can say
+// `age=-` instead of inventing a matrix; `fresh` is the only claim of tight
+// coupling, and it needs the apply, a readable matrix and the same guest frame.
+struct TransformSnapshot {
+  WorldMatrix matrix{};
+  uint64_t frame = 0;      // guest frame of the last state-1 apply
+  uint64_t applies = 0;    // monotonically increasing state-1 apply counter
+  uint32_t attribute = 0;  // applied attribute (guest r5 - kWorldAttributeMatrix)
+  uint32_t age = 0;        // geometry applications since that apply
+  bool present = false;    // the 64 bytes were readable at the apply
+  bool aligned = false;    // the guest's r5 was already 16-byte aligned
+  bool applied = false;    // a state-1 apply has been captured on this thread
+  bool fresh = false;      // present && age == 0 && applied in this guest frame
+};
+
+// Thread-local on purpose: the trace already relies on the render thread being
+// one thread, and a wrong answer is worse than a missing one. A draw on another
+// thread would see `applied=false`, never another thread's matrix.
+class TransformCapture {
+ public:
+  // 822F5CE0. Only state 1 is the world slot; any other state must leave the
+  // capture untouched, so a state-0 apply in between never silences a draw.
+  bool Apply(uint32_t state, const MatrixCapture& read, uint32_t attribute, uint64_t frame) {
+    if (state != kWorldTransformState) return false;
+    ++applies_;
+    age_ = 0;
+    frame_ = frame;
+    attribute_ = attribute;
+    matrix_ = read.matrix;
+    present_ = read.present;
+    aligned_ = read.aligned;
+    applied_ = true;
+    return true;
+  }
+  // One geometry application (8232E5E0). Rows read the snapshot first and then
+  // advance it, so the first draw after an apply reports age=0.
+  void Advance() {
+    if (age_ != UINT32_MAX) ++age_;
+  }
+  TransformSnapshot Snapshot(uint64_t frame) const {
+    TransformSnapshot snapshot;
+    snapshot.matrix = matrix_;
+    snapshot.frame = frame_;
+    snapshot.applies = applies_;
+    snapshot.attribute = attribute_;
+    snapshot.age = age_;
+    snapshot.present = present_;
+    snapshot.aligned = aligned_;
+    snapshot.applied = applied_;
+    snapshot.fresh = applied_ && present_ && age_ == 0 && frame_ == frame;
+    return snapshot;
+  }
+  uint64_t Applies() const { return applies_; }
+  uint32_t Age() const { return age_; }
+
+ private:
+  WorldMatrix matrix_{};
+  uint64_t frame_ = 0, applies_ = 0;
+  uint32_t attribute_ = 0, age_ = 0;
+  bool present_ = false, aligned_ = false, applied_ = false;
+};
+
+// A transform row exists only where the provenance row is an attribution. The
+// instance in the row is the drawing occurrence's, so a non-list draw or an
+// unresolved path has no instance to join and gets no row.
+inline bool TransformRowAttributed(Reason reason, uint64_t instance) {
+  return instance != 0 && (reason == Reason::resolved || reason == Reason::direct_apply);
+}
+
+// One row into one buffer: a single allocation instead of the sixteen the old
+// per-field fmt::format calls made. Translation is in the last ROW (m30..m32) and
+// the last column is (0,0,0,1); `{:.9g}` is FLT_DECIMAL_DIG, so every element
+// round-trips. Without a captured matrix the row stops before `aligned`/matrix
+// so no zero transform can be read as one.
+inline void FormatTransformRow(fmt::memory_buffer& row, uint64_t frame, const Occurrence& owner,
+                               uint32_t device, const TransformSnapshot& transform) {
+  row.clear();
+  const auto node = owner.path.empty() ? 0u : owner.path.back().address;
+  fmt::format_to(std::back_inserter(row),
+                 "engine_trace transform frame={} instance={} part=0 node={:08X} device={:08X} "
+                 "attribute={:08X} depth={} fresh={} age=",
+                 frame, owner.instance, node, device, transform.attribute, owner.path.size(),
+                 transform.fresh ? 1 : 0);
+  if (!transform.applied) {
+    fmt::format_to(std::back_inserter(row), "-");
+    return;
+  }
+  fmt::format_to(std::back_inserter(row), "{}", transform.age);
+  if (!transform.present) return;
+  fmt::format_to(std::back_inserter(row), " aligned={} matrix_hash={:016X}", transform.aligned,
+                 MatrixHash(transform.matrix));
+  for (size_t i = 0; i < kWorldMatrixWords; ++i)
+    fmt::format_to(std::back_inserter(row), " m{}{}={:.9g}", i / 4, i % 4,
+                   std::bit_cast<float>(transform.matrix[i]));
+}
+
+// A transform row carries 16 floats at 9 significant digits; measured rows are
+// 442-445 bytes. At the observed 501 attributed draws per frame that is ~222 KB
+// per frame while the log rotates at 5 MB and keeps 20 files, and the analysis
+// harness only concatenates two files. The budget bounds one frame's rows;
+// running out is reported once instead of truncating the frame silently.
+class TransformBudget {
+ public:
+  void BeginFrame(uint64_t frame, uint32_t limit) {
+    if (frame == frame_ && limit == limit_) return;
+    frame_ = frame;
+    limit_ = limit;
+    emitted_ = 0;
+    skipped_ = 0;
+    reported_ = false;
+  }
+  bool Take() {
+    if (emitted_ < limit_) {
+      ++emitted_;
+      return true;
+    }
+    ++skipped_;
+    return false;
+  }
+  bool ReportSkip() {
+    if (reported_ || !skipped_) return false;
+    reported_ = true;
+    return true;
+  }
+  uint32_t Limit() const { return limit_; }
+  uint32_t Emitted() const { return emitted_; }
+  uint32_t Skipped() const { return skipped_; }
+
+ private:
+  uint64_t frame_ = 0;
+  uint32_t limit_ = 0, emitted_ = 0, skipped_ = 0;
+  bool reported_ = false;
+};
+
+// The channel needs the opt-in flag AND the existing frame window. The flag is
+// read first so a default-off run pays one cvar read and nothing else.
+inline bool TransformSelected(bool enabled, int32_t start, int32_t count, uint64_t frame) {
+  return enabled && TraceSelected(start, count, frame);
+}
 
 }  // namespace giantsrecomp::engine_trace

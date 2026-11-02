@@ -7,11 +7,21 @@
 #include <rex/ui/temporal_jitter.h>
 #include <fmt/format.h>
 
+#include <string>
+#include <string_view>
+
 REXCVAR_DEFINE_INT32(nr_engine_trace_frame, -1, "Graphics",
                      "Development: first guest frame for ordered engine diagnostics; "
                      "-1 disables. Does not enable neural rendering.").range(-1, 1000000000).lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_INT32(nr_engine_trace_frames, 1, "Graphics",
                      "Development: consecutive guest frames for engine diagnostics.").range(1, 120).lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(nr_engine_trace_transforms, false, "Graphics",
+                    "Development: log the state-1 world transform each instance applies. Requires "
+                    "an nr_engine_trace_frame window. Does not enable neural rendering.")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_INT32(nr_engine_trace_transform_rows, 4096, "Graphics",
+                     "Development: per-frame cap on engine_trace transform rows.")
+    .range(1, 65536).lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
 REX_EXTERN(__imp__sub_823D1C10);
 
@@ -30,16 +40,35 @@ struct Consumer { uint32_t packet, data, count; uint64_t token; };
 thread_local std::vector<Consumer> consumers;
 thread_local DirectApply direct_apply;
 
+// Transform channel state. The guest applies the world transform and draws on the
+// same render thread (the trace already relies on `in_root` being thread-local),
+// so the capture is thread-local too: a draw on another thread would see
+// `applied=false`, never another thread's matrix.
+thread_local TransformCapture transform_capture;
+thread_local TransformBudget transform_budget;
+
 bool Enabled() { return REXCVAR_GET(nr_engine_trace_frame) >= 0; }
 bool Selected() {
   return TraceSelected(REXCVAR_GET(nr_engine_trace_frame), REXCVAR_GET(nr_engine_trace_frames),
                        rex::ui::temporal::GuestSwapCount());
 }
+bool TransformEnabled() {
+  return TransformSelected(REXCVAR_GET(nr_engine_trace_transforms),
+                           REXCVAR_GET(nr_engine_trace_frame),
+                           REXCVAR_GET(nr_engine_trace_frames),
+                           rex::ui::temporal::GuestSwapCount());
+}
 
-bool Emit(PPCContext& ctx, uint8_t* base, M::Kind kind, uint32_t node = 0, uint32_t geometry = 0) {
+// The render device every marker/attribute write goes through. Read once per row
+// instead of assuming r3: at the draw hook r3 is the geometry, not the device.
+uint32_t CurrentDevice(const uint8_t* base) {
   const uint32_t context = Guest32(base, 0x826F42A0);
   const uint32_t wrapper = context ? Guest32(base, context + 2596) : 0;
-  const uint32_t device = wrapper ? Guest32(base, wrapper + 12) : 0;
+  return wrapper ? Guest32(base, wrapper + 12) : 0;
+}
+
+bool Emit(PPCContext& ctx, uint8_t* base, M::Kind kind, uint32_t node = 0, uint32_t geometry = 0) {
+  const uint32_t device = CurrentDevice(base);
   const bool emitted = AppendMarker(base, device,
         {kind, uint32_t(rex::ui::temporal::GuestSwapCount()), node, geometry}, [&] {
           PPCContext refill_ctx = ctx;
@@ -193,6 +222,9 @@ REX_HOOK_RAW(sub_8218EA38) {
 
 REX_EXTERN(__imp__sub_8232E5E0);
 REX_HOOK_RAW(sub_8232E5E0) {
+  // One cvar read decides whether the transform carry counter is maintained; the
+  // rest of the hook only runs inside a selected frame either way.
+  const bool transforms = TransformEnabled();
   if (in_root && Selected()) {
     Occurrence owner;
     owner.reason = Reason::unknown_caller;
@@ -233,9 +265,7 @@ REX_HOOK_RAW(sub_8232E5E0) {
         membership = provenance.Membership(ctx.r3.u32, rex::ui::temporal::GuestSwapCount());
         // [device+40] is the currently bound geometry attribute (RE report §2,
         // group A); the same device the Emit refill uses.
-        const auto context = Guest32(base, 0x826F42A0);
-        const auto wrapper = context ? Guest32(base, context + 2596) : 0;
-        const auto device = wrapper ? Guest32(base, wrapper + 12) : 0;
+        const auto device = CurrentDevice(base);
         bound_geometry = device ? Guest32(base, device + 40) : 0;
         break;
       }
@@ -287,7 +317,26 @@ REX_HOOK_RAW(sub_8232E5E0) {
                 owner.part, owner.part_index, owner.caller, uint32_t(ctx.lr), ReasonName(owner.reason), emitted, path,
                 applied, traversal.path.size(), DirectMatchName(direct.match), direct.selector,
                 direct.selector_valid, direct.selector_valid && direct.selector == 0);
+    // The draw is the join point. `owner.instance` came from this same occurrence,
+    // so the row's instance is the one that draws; the matrix is whatever this
+    // thread applied last, and age/fresh say how much happened in between.
+    if (transforms && TransformRowAttributed(owner.reason, owner.instance)) {
+      const auto frame = rex::ui::temporal::GuestSwapCount();
+      transform_budget.BeginFrame(frame, uint32_t(REXCVAR_GET(nr_engine_trace_transform_rows)));
+      if (!transform_budget.Take()) {
+        if (transform_budget.ReportSkip())
+          REXLOG_WARN("engine_trace transform_capped frame={} limit={}; later applications this "
+                      "frame have no transform row", frame, transform_budget.Limit());
+      } else {
+        // One buffer, one allocation: sixteen fmt::format calls used to allocate
+        // sixteen times per row.
+        fmt::memory_buffer row;
+        FormatTransformRow(row, frame, owner, CurrentDevice(base), transform_capture.Snapshot(frame));
+        REXLOG_INFO("{}", std::string_view(row.data(), row.size()));
+      }
+    }
   }
+  if (transforms) transform_capture.Advance();
   __imp__sub_8232E5E0(ctx, base);
 }
 
@@ -313,3 +362,19 @@ TRACE_PHASE(8219E408)
 TRACE_PHASE(8219FB80)
 TRACE_PHASE(8219BFD0)
 TRACE_PHASE(8219F618)
+
+REX_EXTERN(__imp__sub_822F5CE0);
+REX_HOOK_RAW(sub_822F5CE0) {
+  // SetTransform(device, state, matrix). State 1 is the world slot, applied only by
+  // 8232F468 (recomp.79.cpp:12241-12253) with r5 = attribute + 16; state 0 comes
+  // from 8232F500 and must not disturb a captured world transform. Copy the same
+  // 64 bytes the guest is about to load, then emit at the draw instead. Default-off
+  // cost is this single cvar read.
+  if (TransformEnabled() && ctx.r4.u32 == kWorldTransformState) {
+    const auto attribute = ctx.r5.u32 > kWorldAttributeMatrix
+                               ? ctx.r5.u32 - kWorldAttributeMatrix : 0;
+    transform_capture.Apply(ctx.r4.u32, ReadWorldMatrix(base, ctx.r5.u32), attribute,
+                            rex::ui::temporal::GuestSwapCount());
+  }
+  __imp__sub_822F5CE0(ctx, base);
+}
