@@ -3,30 +3,10 @@
 #include <array>
 #include <cstdint>
 #include <functional>
-#include <unordered_map>
 #include <rex/graphics/trace_marker.h>
 #include <rex/memory/utils.h>
 
 namespace giantsrecomp::engine_trace {
-
-struct WorldOwners {
-  uint64_t frame = UINT64_MAX;
-  std::unordered_map<uint32_t, uint32_t> nodes;
-
-  void Bind(uint64_t current_frame, uint32_t attribute, uint32_t node) {
-    if (frame != current_frame) {
-      nodes.clear();
-      frame = current_frame;
-    }
-    auto [entry, inserted] = nodes.emplace(attribute, node);
-    if (!inserted && entry->second != node) entry->second = 0;
-  }
-  uint32_t Find(uint64_t current_frame, uint32_t attribute) const {
-    if (frame != current_frame) return 0;
-    auto entry = nodes.find(attribute);
-    return entry != nodes.end() ? entry->second : 0;
-  }
-};
 
 inline bool AppendMarker(uint8_t* base, uint32_t device,
                          rex::graphics::TraceMarker marker,

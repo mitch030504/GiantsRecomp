@@ -1,76 +1,230 @@
 #include "engine_trace.h"
+#include "engine_provenance.h"
 
 #include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/logging.h>
 #include <rex/ui/temporal_jitter.h>
+#include <fmt/format.h>
 
 REXCVAR_DEFINE_INT32(nr_engine_trace_frame, -1, "Graphics",
-                     "Development: emit ordered engine draw diagnostics for one guest frame; "
-                     "-1 disables. Does not enable neural rendering.").range(-1, 1000000000);
+                     "Development: first guest frame for ordered engine diagnostics; "
+                     "-1 disables. Does not enable neural rendering.").range(-1, 1000000000).lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_INT32(nr_engine_trace_frames, 1, "Graphics",
+                     "Development: consecutive guest frames for engine diagnostics.").range(1, 120).lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
 REX_EXTERN(__imp__sub_823D1C10);
 
 namespace {
 using M = rex::graphics::TraceMarker;
-thread_local giantsrecomp::engine_trace::WorldOwners owners;
-thread_local uint32_t current_node = 0;
+using namespace giantsrecomp::engine_trace;
+Provenance provenance;
+thread_local Traversal traversal;
 thread_local bool in_root = false;
+thread_local uint32_t marker_ordinal = 0, instance_ordinal = 0;
+struct Submission { uint32_t manager, begin, end, caller; };
+thread_local std::vector<Submission> submissions;
+struct PacketScope { uint32_t packet; uint64_t token; };
+thread_local std::vector<PacketScope> producers;
+struct Consumer { uint32_t packet, data, count; uint64_t token; };
+thread_local std::vector<Consumer> consumers;
 
+bool Enabled() { return REXCVAR_GET(nr_engine_trace_frame) >= 0; }
 bool Selected() {
-  const auto selected = REXCVAR_GET(nr_engine_trace_frame);
-  return selected >= 0 && rex::ui::temporal::GuestSwapCount() == uint64_t(selected);
+  return TraceSelected(REXCVAR_GET(nr_engine_trace_frame), REXCVAR_GET(nr_engine_trace_frames),
+                       rex::ui::temporal::GuestSwapCount());
 }
 
-void Emit(PPCContext& ctx, uint8_t* base, M::Kind kind, uint32_t node = 0, uint32_t geometry = 0) {
-  using rex::memory::load_and_swap;
-  const uint32_t context = load_and_swap<uint32_t>(base + 0x826F42A0);
-  const uint32_t wrapper = context ? load_and_swap<uint32_t>(base + context + 2596) : 0;
-  const uint32_t device = wrapper ? load_and_swap<uint32_t>(base + wrapper + 12) : 0;
-  if (!giantsrecomp::engine_trace::AppendMarker(base, device,
+bool Emit(PPCContext& ctx, uint8_t* base, M::Kind kind, uint32_t node = 0, uint32_t geometry = 0) {
+  const uint32_t context = Guest32(base, 0x826F42A0);
+  const uint32_t wrapper = context ? Guest32(base, context + 2596) : 0;
+  const uint32_t device = wrapper ? Guest32(base, wrapper + 12) : 0;
+  const bool emitted = AppendMarker(base, device,
         {kind, uint32_t(rex::ui::temporal::GuestSwapCount()), node, geometry}, [&] {
           PPCContext refill_ctx = ctx;
           refill_ctx.r3.u64 = device;
           __imp__sub_823D1C10(refill_ctx, base);
-        })) {
-    REXLOG_WARN("engine_trace marker dropped kind={} node={:08X}; trace incomplete",
-                uint32_t(kind), node);
-  }
+        });
+  ++marker_ordinal;
+  if (!emitted) REXLOG_WARN("engine_trace marker dropped kind={} node={:08X}; trace incomplete",
+                            uint32_t(kind), node);
+  return emitted;
+}
+
+void Consume(PPCContext& ctx, uint8_t* base, void (*original)(PPCContext&, uint8_t*), uint32_t packet) {
+  if (!Enabled() || !packet) { original(ctx, base); return; }
+  const auto array = Guest32(base, packet + 16);
+  consumers.push_back({packet, Guest32(base, array + 20), Guest32(base, array + 8),
+                       provenance.PacketToken(packet)});
+  original(ctx, base);
+  consumers.pop_back();
 }
 }  // namespace
 
-REX_EXTERN(__imp__sub_82269598);
-REX_HOOK_RAW(sub_82269598) {
-  const bool capture = Selected() && uint32_t(ctx.lr) == 0x821992F4;
-  const uint32_t node = ctx.r29.u32;
-  __imp__sub_82269598(ctx, base);
-  if (capture && ctx.r3.u32) {
-    owners.Bind(rex::ui::temporal::GuestSwapCount(), ctx.r3.u32, node);
+REX_EXTERN(__imp__sub_822E5330);
+REX_HOOK_RAW(sub_822E5330) {
+  if (!Enabled()) { __imp__sub_822E5330(ctx, base); return; }
+  // r3 is the traversal context; r4 points to the node being dispatched.
+  provenance.Enter(traversal, Guest32(base, ctx.r4.u32));
+  __imp__sub_822E5330(ctx, base);
+  provenance.Leave(traversal);
+}
+
+REX_EXTERN(__imp__sub_82275428);
+REX_HOOK_RAW(sub_82275428) {
+  if (Enabled()) {
+    const auto address = ctx.r3.u32;
+    const auto token = provenance.Retire(address);
+    if (token) REXLOG_INFO("engine_trace retire frame={} object={:08X} lifetime={}",
+                          rex::ui::temporal::GuestSwapCount(), address, token);
+  }
+  __imp__sub_82275428(ctx, base);
+}
+
+REX_EXTERN(__imp__sub_822DE650);
+REX_HOOK_RAW(sub_822DE650) {
+  if (Enabled()) provenance.ResetRecords(ctx.r3.u32);
+  __imp__sub_822DE650(ctx, base);
+}
+
+REX_EXTERN(__imp__sub_822DE2F0);
+REX_HOOK_RAW(sub_822DE2F0) {
+  if (!Enabled()) { __imp__sub_822DE2F0(ctx, base); return; }
+  submissions.push_back({ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, uint32_t(ctx.lr)});
+  __imp__sub_822DE2F0(ctx, base);
+  submissions.pop_back();
+}
+
+REX_EXTERN(__imp__sub_822DE248);
+REX_HOOK_RAW(sub_822DE248) {
+  if (!Enabled()) { __imp__sub_822DE248(ctx, base); return; }
+  const auto manager = ctx.r3.u32, states = ctx.r4.u32, caller = uint32_t(ctx.lr);
+  const auto input = ctx.r28.u32, count = ctx.r29.u32;
+  __imp__sub_822DE248(ctx, base);
+  const auto destination = ctx.r3.u32;
+  if (destination >= states && (destination - states) % 8 == 0 &&
+      GuestRange(states, (destination - states) / 8, 8)) {
+    for (auto record = states; record < destination; record += 8) {
+      auto geometry = Guest32(base, record);
+      Occurrence owner;
+      if (geometry && Guest32(base, Guest32(base, geometry) + 64) == 0x8232E5E0)
+        owner = provenance.Occurrence(traversal, geometry, caller, Guest16(base, record + 4));
+      provenance.BindRecord(manager, record, owner);
+    }
+  }
+  if (caller == 0x822DE3D4 && !submissions.empty()) {
+    const auto& submission = submissions.back();
+    if (!provenance.BindChunk(base, manager, traversal, submission.begin, submission.end,
+                              input, destination, count, submission.caller))
+      REXLOG_WARN("engine_trace invalid submission; provenance missing");
   }
 }
 
-REX_EXTERN(__imp__sub_8232F468);
-REX_HOOK_RAW(sub_8232F468) {
-  if (Selected()) current_node = owners.Find(rex::ui::temporal::GuestSwapCount(), ctx.r3.u32);
-  __imp__sub_8232F468(ctx, base);
+REX_EXTERN(__imp__sub_822DF1B0);
+REX_HOOK_RAW(sub_822DF1B0) {
+  if (!Enabled()) { __imp__sub_822DF1B0(ctx, base); return; }
+  const auto packet = Guest32(base, ctx.r3.u32 + 96);
+  const auto token = provenance.BeginPacket(packet);
+  producers.push_back({packet, token});
+  __imp__sub_822DF1B0(ctx, base);
+  provenance.CompletePacket(packet, token);
+  producers.pop_back();
 }
 
-REX_EXTERN(__imp__sub_821A0730);
-REX_HOOK_RAW(sub_821A0730) {
-  if (Selected()) current_node = 0;
-  __imp__sub_821A0730(ctx, base);
+REX_EXTERN(__imp__sub_822DEE70);
+REX_HOOK_RAW(sub_822DEE70) {
+  if (!Enabled() || producers.empty() || producers.back().packet != ctx.r6.u32) {
+    __imp__sub_822DEE70(ctx, base); return;
+  }
+  const auto scope = producers.back();
+  const auto start = ReadList(base, scope.packet).size();
+  const auto expected = provenance.Predict(base, ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r7.u32);
+  __imp__sub_822DEE70(ctx, base);
+  if (!provenance.Publish(scope.packet, scope.token, start, expected, ReadList(base, scope.packet)))
+    REXLOG_WARN("engine_trace flatten mismatch packet={:08X} lifetime={}; unresolved",
+                scope.packet, scope.token);
+}
+
+#define TRACE_CONSUMER(address) \
+  REX_EXTERN(__imp__sub_##address); \
+  REX_HOOK_RAW(sub_##address) { Consume(ctx, base, __imp__sub_##address, ctx.r4.u32); }
+TRACE_CONSUMER(821A0730)
+TRACE_CONSUMER(8219FC28)
+TRACE_CONSUMER(821A00E0)
+TRACE_CONSUMER(8219A450)
+TRACE_CONSUMER(821A1B28)
+TRACE_CONSUMER(8219F508)
+TRACE_CONSUMER(821A1160)
+TRACE_CONSUMER(821A1458)
+TRACE_CONSUMER(821A15E8)
+
+REX_EXTERN(__imp__sub_821A1900);
+REX_HOOK_RAW(sub_821A1900) {
+  if (!Enabled()) { __imp__sub_821A1900(ctx, base); return; }
+  const auto extension = Guest32(base, 0x82673544);
+  const auto context = Guest32(base, ctx.r3.u32 + (extension + 12) * 4);
+  Consume(ctx, base, __imp__sub_821A1900, Guest32(base, context + 748));
 }
 
 REX_EXTERN(__imp__sub_8232E5E0);
 REX_HOOK_RAW(sub_8232E5E0) {
-  if (in_root && Selected()) Emit(ctx, base, M::kInstance, current_node, ctx.r3.u32);
+  if (in_root && Selected()) {
+    Occurrence owner;
+    owner.reason = Reason::unknown_caller;
+    uint32_t cursor = 0, index = UINT32_MAX;
+    Consumer consumer{};
+    if (!consumers.empty()) consumer = consumers.back();
+    switch (uint32_t(ctx.lr)) {
+      case 0x821A0B74: cursor = ctx.r23.u32; break;
+      case 0x8219FFE8: cursor = Guest32(base, ctx.r31.u32 + 88); break;
+      case 0x821A0610: case 0x8219AA9C: cursor = Guest32(base, ctx.r31.u32 + 92); break;
+      case 0x821A1F3C: cursor = ctx.r20.u32; break;
+      case 0x821A25E0: cursor = Guest32(base, ctx.r31.u32 + 116); break;
+      case 0x8219E838: {
+        const auto packet = Guest32(base, ctx.r31.u32 + 152);
+        const auto array = Guest32(base, packet + 16);
+        consumer = {packet, Guest32(base, array + 20), Guest32(base, array + 8), provenance.PacketToken(packet)};
+        cursor = consumer.data + Guest32(base, ctx.r31.u32 + 132);
+        break;
+      }
+      case 0x8219F5D8: case 0x821A1A88: cursor = consumer.data + ctx.r30.u32; break;
+      case 0x821A13BC: cursor = consumer.data + ctx.r27.u32; break;
+      case 0x821A15A8: case 0x821A170C: cursor = consumer.data + ctx.r29.u32; break;
+    }
+    if (cursor && consumer.packet) {
+      owner.reason = Reason::missing_entry;
+      if (cursor >= consumer.data && (cursor - consumer.data) % 4 == 0 &&
+          (cursor - consumer.data) / 4 < consumer.count) {
+        index = (cursor - consumer.data) / 4;
+        owner = provenance.Resolve(consumer.packet, consumer.token, index, ctx.r3.u32);
+        if (Guest32(base, cursor) != ctx.r3.u32) owner.reason = Reason::pointer_mismatch;
+      }
+    }
+    const auto node = owner.reason == Reason::resolved && !owner.path.empty() ? owner.path.back().address : 0;
+    std::string path;
+    for (auto entry : owner.path) path += fmt::format("{:08X}@{}/", entry.address, entry.token);
+    const auto ordinal = marker_ordinal;
+    // Output tiles replay PM4: carry the source ordinal in the existing node word.
+    const auto marker_id = instance_ordinal + 1;
+    const bool emitted = Emit(ctx, base, M::kInstance, marker_id, ctx.r3.u32);
+    REXLOG_INFO("engine_trace provenance frame={} marker={} ordinal={} packet={:08X} packet_life={} "
+                "marker_id={:08X} node={:08X} index={} record={:08X} geometry={:08X} geometry_life={} instance={} part={} "
+                "part_index={} submit={:08X} caller={:08X} reason={} emitted={} path={}",
+                rex::ui::temporal::GuestSwapCount(), ordinal, instance_ordinal++, consumer.packet,
+                consumer.token, marker_id, node, index, owner.record, ctx.r3.u32, owner.geometry_life, owner.instance,
+                owner.part, owner.part_index, owner.caller, uint32_t(ctx.lr), ReasonName(owner.reason), emitted, path);
+  }
   __imp__sub_8232E5E0(ctx, base);
 }
 
 REX_EXTERN(__imp__sub_8219BAE0);
 REX_HOOK_RAW(sub_8219BAE0) {
   const bool selected = Selected();
-  if (selected) { in_root = true; Emit(ctx, base, M::kBegin, ctx.r3.u32); }
+  if (selected) {
+    in_root = true;
+    marker_ordinal = instance_ordinal = 0;
+    Emit(ctx, base, M::kBegin, ctx.r3.u32);
+  }
   __imp__sub_8219BAE0(ctx, base);
   if (selected) { Emit(ctx, base, M::kEnd); in_root = false; }
 }
