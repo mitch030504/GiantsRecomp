@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <mutex>
@@ -15,15 +16,22 @@ inline bool TraceSelected(int32_t start, int32_t count, uint64_t frame) {
   return start >= 0 && frame >= uint64_t(start) && frame - start < uint64_t(count);
 }
 
+// `resolved` means the occurrence was attributed through the serialized list.
+// Helper 8218EA38 applies geometry straight to the device instead, so its rows
+// get `direct_apply` only once the entry frame, the thread-local traversal and
+// the lifetime/ambiguity status all agree; any failure keeps its own reason.
+// RE (out/tmp/nr-phase1/re-8218ea38) finds that traversal closed before the
+// helper runs, so `direct_apply` is not expected to fire in practice: the path
+// below is a guard that only fires if that static analysis is wrong.
 enum class Reason {
   resolved, missing_traversal, ambiguous_path, retired_lifetime,
   missing_record, sequence_mismatch, missing_packet, stale_packet,
-  missing_entry, pointer_mismatch, unknown_caller
+  missing_entry, pointer_mismatch, unknown_caller, direct_apply
 };
 inline const char* ReasonName(Reason reason) {
   constexpr const char* names[]{"resolved", "missing_traversal", "ambiguous_path",
     "retired_lifetime", "missing_record", "sequence_mismatch", "missing_packet",
-    "stale_packet", "missing_entry", "pointer_mismatch", "unknown_caller"};
+    "stale_packet", "missing_entry", "pointer_mismatch", "unknown_caller", "direct_apply"};
   return names[static_cast<unsigned>(reason)];
 }
 struct NodeLife {
@@ -44,12 +52,35 @@ struct ListEntry {
   uint32_t pointer = 0, record = 0;
   Occurrence owner;
 };
+// Value search over the live packets: measurement only, never an attribution.
+// `unique` is true only when exactly one entry across every live packet carries
+// the pointer; shared geometry makes several entries likely, and that is
+// reported as ambiguous rather than resolved.
+struct PacketMembership {
+  uint32_t live_packets = 0, current_packets = 0;
+  uint32_t packets_matching = 0, entries_matching = 0;
+  uint32_t frame_packets_matching = 0, frame_entries_matching = 0;
+  bool unique = false;
+  uint32_t unique_packet = 0, unique_index = 0;
+  Occurrence owner;
+};
 inline uint32_t Guest32(const uint8_t* base, uint32_t address) {
   return rex::memory::load_and_swap<uint32_t>(base + address);
 }
 inline uint16_t Guest16(const uint8_t* base, uint32_t address) {
   return rex::memory::load_and_swap<uint16_t>(base + address);
 }
+// Both observed callers of helper 8218EA38 store a 16-bit selector at object+8
+// before applying. RE (out/tmp/nr-phase1/re-8218ea38 §4) proves every stored
+// value is a 0 reset and that the field is not a part index, so it is captured
+// for diagnosis only and never defines identity.
+inline bool ReadDirectSelector(const uint8_t* base, uint32_t object, uint16_t& value) {
+  if (!object || object > UINT32_MAX - 10) return false;
+  value = Guest16(base, object + 8);
+  return true;
+}
+// Parts are never keyed on the selector, so every direct row uses this sentinel.
+inline constexpr uint32_t kDirectIndexUnknown = UINT32_MAX;
 inline bool GuestRange(uint32_t address, uint32_t count, uint32_t stride) {
   return address && !(address & 3) && uint64_t(address) + uint64_t(count) * stride <= UINT32_MAX;
 }
@@ -134,12 +165,21 @@ class Provenance {
                  Occurrence(traversal, Guest32(base, input + i * 4), caller, (input - begin) / 4 + i));
     return true;
   }
-  uint64_t BeginPacket(uint32_t packet) {
+  uint64_t BeginPacket(uint32_t packet, uint64_t frame) {
     std::lock_guard lock(mutex_);
     Lifetime(packet);
     auto token = ++next_;
-    packets_[packet] = {token, false, {}};
+    packets_[packet] = {token, frame, false, {}};
     return token;
+  }
+  // A packet belongs to the guest frame that began it. Membership must be scoped
+  // to that frame: leftover packets from earlier frames survive under recycled
+  // frame-allocator addresses, and counting them would turn a geometry that is in
+  // no current packet into a false single match.
+  uint64_t LiveLifetime(uint32_t address) const {
+    std::lock_guard lock(mutex_);
+    auto found = lives_.find(address);
+    return found == lives_.end() ? 0 : found->second;
   }
   uint64_t PacketToken(uint32_t packet) const {
     std::lock_guard lock(mutex_);
@@ -181,6 +221,50 @@ class Provenance {
       const auto& entry = found->second.entries[index];
       result = entry.owner;
       result.reason = entry.pointer == geometry ? StatusLocked(result) : Reason::pointer_mismatch;
+    }
+    return result;
+  }
+
+  // Does any live packet carry this geometry pointer, and is that entry unique?
+  // Read-only measurement so the caller can distinguish a genuine non-list
+  // submission (0 matches) from an ambiguous bare-pointer search (>1 match)
+  // without inventing an owner.
+  PacketMembership Membership(uint32_t geometry, uint64_t frame) const {
+    std::lock_guard lock(mutex_);
+    PacketMembership result;
+    result.live_packets = uint32_t(packets_.size());
+    for (const auto& [packet, state] : packets_) {
+      const bool current = state.frame == frame;
+      if (current) ++result.current_packets;
+      if (!state.complete) continue;
+      uint32_t matching = 0, first = 0;
+      for (uint32_t i = 0; i < state.entries.size(); ++i) {
+        if (state.entries[i].pointer != geometry) continue;
+        if (!matching) first = i;
+        ++matching;
+      }
+      if (!matching) continue;
+      // Counts are reported at both scopes: a pointer that appears only in a
+      // packet from another frame is a different fact from one that is absent
+      // everywhere, and collapsing them would hide which case a run hit.
+      result.packets_matching += 1;
+      result.entries_matching += matching;
+      if (!current) continue;
+      if (!result.frame_packets_matching) {
+        result.unique_packet = packet;
+        result.unique_index = first;
+        result.owner = state.entries[first].owner;
+        // A sequence-mismatch entry has no verified owner; do not let a unique
+        // pointer hit present it as one.
+        if (result.owner.reason != Reason::resolved) result.owner = {};
+      }
+      result.frame_packets_matching += 1;
+      result.frame_entries_matching += matching;
+    }
+    result.unique = result.frame_entries_matching == 1 && result.owner.reason == Reason::resolved;
+    if (!result.unique) {
+      result.unique_packet = result.unique_index = 0;
+      result.owner = {};
     }
     return result;
   }
@@ -264,7 +348,7 @@ class Provenance {
     return Reason::resolved;
   }
   struct Record { uint32_t manager; engine_trace::Occurrence owner; };
-  struct Packet { uint64_t token; bool complete; std::vector<ListEntry> entries; };
+  struct Packet { uint64_t token; uint64_t frame; bool complete; std::vector<ListEntry> entries; };
   mutable std::mutex mutex_;
   uint64_t next_ = 0;
   std::unordered_map<uint32_t, uint64_t> lives_;
@@ -273,6 +357,96 @@ class Provenance {
   std::set<uint64_t> ambiguous_;
   std::unordered_map<uint32_t, Record> records_;
   std::unordered_map<uint32_t, Packet> packets_;
+};
+
+// Helper 8218EA38 applies geometry objects straight to the device through slot
+// +64 of incoming r6 and never feeds the serialized list, so the list cursor
+// structurally cannot attribute those applications. Capture the entry frame per
+// thread and match it by the geometry object the helper applies.
+inline constexpr size_t kDirectApplyDepth = 8;
+struct DirectFrame {
+  uint32_t r3 = 0, r4 = 0, r5 = 0, r6 = 0;
+  // Diagnostic only: RE proves this word is a 0 reset, not a part index.
+  uint16_t selector = 0;
+  bool selector_valid = false;
+};
+enum class DirectMatch { none, matched, mismatch, unavailable };
+inline const char* DirectMatchName(DirectMatch match) {
+  constexpr const char* names[]{"none", "matched", "mismatch", "unavailable"};
+  return names[static_cast<unsigned>(match)];
+}
+struct DirectOwner {
+  Occurrence owner;
+  DirectMatch match = DirectMatch::none;
+  uint16_t selector = 0;
+  bool selector_valid = false;
+  bool geometry_live = false;
+};
+class DirectApply {
+ public:
+  // Nesting is bounded; a frame that does not fit is dropped and reported, never
+  // silently paired with the wrong caller.
+  bool Push(const DirectFrame& frame) {
+    if (frames_.size() >= kDirectApplyDepth) { ++dropped_; return false; }
+    frames_.push_back(frame);
+    return true;
+  }
+  void Pop() { if (!frames_.empty()) frames_.pop_back(); }
+  size_t Depth() const { return frames_.size(); }
+  uint32_t Dropped() const { return dropped_; }
+  DirectOwner Apply(Provenance& provenance, const Traversal& traversal,
+                    uint32_t geometry, uint32_t caller) const {
+    DirectOwner result;
+    result.owner.geometry = geometry;
+    result.owner.caller = caller;
+    if (frames_.empty()) {
+      result.match = DirectMatch::unavailable;
+      result.owner.reason = Reason::unknown_caller;
+      return result;
+    }
+    const DirectFrame* frame = nullptr;
+    for (auto it = frames_.rbegin(); it != frames_.rend(); ++it) {
+      if (it->r6 == geometry) { frame = &*it; break; }
+    }
+    if (!frame) {
+      // The helper returned here but no captured entry holds this object: the
+      // capture is inconsistent with the call, so no owner is invented.
+      result.match = DirectMatch::mismatch;
+      result.owner.reason = Reason::unknown_caller;
+      return result;
+    }
+    result.match = DirectMatch::matched;
+    result.selector = frame->selector;
+    result.selector_valid = frame->selector_valid;
+    if (traversal.path.empty()) {
+      // RE says this is the normal case: the serializer (822E5330) has already
+      // returned, so no traversal instance exists and none is invented.
+      result.owner.reason = Reason::unknown_caller;
+      return result;
+    }
+    // Not expected to be reachable; kept so that a live traversal would be
+    // visible rather than silently ignored. The selector never keys identity.
+    //
+    // `Occurrence` calls `Lifetime`, which would re-register an address that the
+    // lifetime hook already retired. Check the geometry is currently known-live
+    // first, so a destroyed attribute can never be promoted to an attribution.
+    if (!provenance.LiveLifetime(geometry)) {
+      result.geometry_live = false;
+      result.owner.reason = Reason::unknown_caller;
+      return result;
+    }
+    result.geometry_live = true;
+    result.owner = provenance.Occurrence(traversal, geometry, caller, kDirectIndexUnknown);
+    // Ask the same lifetime/ambiguity question the list path asks before it
+    // claims an attribution; only a clean status may become direct_apply.
+    const auto status = provenance.Status(result.owner);
+    result.owner.reason = status == Reason::resolved ? Reason::direct_apply : status;
+    return result;
+  }
+
+ private:
+  std::vector<DirectFrame> frames_;
+  uint32_t dropped_ = 0;
 };
 
 }  // namespace giantsrecomp::engine_trace

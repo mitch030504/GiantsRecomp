@@ -28,6 +28,7 @@ struct PacketScope { uint32_t packet; uint64_t token; };
 thread_local std::vector<PacketScope> producers;
 struct Consumer { uint32_t packet, data, count; uint64_t token; };
 thread_local std::vector<Consumer> consumers;
+thread_local DirectApply direct_apply;
 
 bool Enabled() { return REXCVAR_GET(nr_engine_trace_frame) >= 0; }
 bool Selected() {
@@ -124,7 +125,7 @@ REX_EXTERN(__imp__sub_822DF1B0);
 REX_HOOK_RAW(sub_822DF1B0) {
   if (!Enabled()) { __imp__sub_822DF1B0(ctx, base); return; }
   const auto packet = Guest32(base, ctx.r3.u32 + 96);
-  const auto token = provenance.BeginPacket(packet);
+  const auto token = provenance.BeginPacket(packet, rex::ui::temporal::GuestSwapCount());
   producers.push_back({packet, token});
   __imp__sub_822DF1B0(ctx, base);
   provenance.CompletePacket(packet, token);
@@ -166,11 +167,40 @@ REX_HOOK_RAW(sub_821A1900) {
   Consume(ctx, base, __imp__sub_821A1900, Guest32(base, context + 748));
 }
 
+REX_EXTERN(__imp__sub_8218EA38);
+REX_HOOK_RAW(sub_8218EA38) {
+  if (!Enabled() || !Selected()) { __imp__sub_8218EA38(ctx, base); return; }
+  // Direct-apply helper. Capture the incoming frame so the slot +64 call it makes
+  // into 8232E5E0 (return address 8218EB58) can be matched to the object it
+  // applies; the serialized list never carries this geometry.
+  DirectFrame frame;
+  frame.r3 = ctx.r3.u32;
+  frame.r4 = ctx.r4.u32;
+  frame.r5 = ctx.r5.u32;
+  frame.r6 = ctx.r6.u32;
+  frame.selector_valid = ReadDirectSelector(base, frame.r3, frame.selector);
+  const bool pushed = direct_apply.Push(frame);
+  const auto top = traversal.path.empty() ? 0 : traversal.path.back().address;
+  REXLOG_INFO("engine_trace direct_apply frame={} r3={:08X} r4={:08X} r5={:08X} r6={:08X} "
+              "selector={} selector_captured={} selector_zero={} depth={} captured={} dropped={} "
+              "traversal_depth={} traversal_top={:08X}",
+              rex::ui::temporal::GuestSwapCount(), frame.r3, frame.r4, frame.r5, frame.r6,
+              frame.selector, frame.selector_valid, frame.selector_valid && frame.selector == 0,
+              direct_apply.Depth(), pushed, direct_apply.Dropped(), traversal.path.size(), top);
+  __imp__sub_8218EA38(ctx, base);
+  if (pushed) direct_apply.Pop();
+}
+
 REX_EXTERN(__imp__sub_8232E5E0);
 REX_HOOK_RAW(sub_8232E5E0) {
   if (in_root && Selected()) {
     Occurrence owner;
     owner.reason = Reason::unknown_caller;
+    DirectOwner direct;
+    PacketMembership membership;
+    bool direct_application = false;
+    uint32_t bound_geometry = 0;
+    const char* applied = "list";
     uint32_t cursor = 0, index = UINT32_MAX;
     Consumer consumer{};
     if (!consumers.empty()) consumer = consumers.back();
@@ -190,6 +220,25 @@ REX_HOOK_RAW(sub_8232E5E0) {
       case 0x8219F5D8: case 0x821A1A88: cursor = consumer.data + ctx.r30.u32; break;
       case 0x821A13BC: cursor = consumer.data + ctx.r27.u32; break;
       case 0x821A15A8: case 0x821A170C: cursor = consumer.data + ctx.r29.u32; break;
+      case 0x8218EB58: {
+        // Helper 8218EA38 applies incoming r6 directly; the list cursor never
+        // sees it. Match the captured entry frame by that same object.
+        direct_application = true;
+        direct = direct_apply.Apply(provenance, traversal, ctx.r3.u32, uint32_t(ctx.lr));
+        owner = direct.owner;
+        applied = "direct";
+        // Measurement only: is this pointer an entry of a packet belonging to
+        // this guest frame? Leftover packets from earlier frames survive under
+        // recycled addresses and must not be counted as a match.
+        membership = provenance.Membership(ctx.r3.u32, rex::ui::temporal::GuestSwapCount());
+        // [device+40] is the currently bound geometry attribute (RE report §2,
+        // group A); the same device the Emit refill uses.
+        const auto context = Guest32(base, 0x826F42A0);
+        const auto wrapper = context ? Guest32(base, context + 2596) : 0;
+        const auto device = wrapper ? Guest32(base, wrapper + 12) : 0;
+        bound_geometry = device ? Guest32(base, device + 40) : 0;
+        break;
+      }
     }
     if (cursor && consumer.packet) {
       owner.reason = Reason::missing_entry;
@@ -200,7 +249,28 @@ REX_HOOK_RAW(sub_8232E5E0) {
         if (Guest32(base, cursor) != ctx.r3.u32) owner.reason = Reason::pointer_mismatch;
       }
     }
-    const auto node = owner.reason == Reason::resolved && !owner.path.empty() ? owner.path.back().address : 0;
+    const bool attributed = owner.reason == Reason::resolved || owner.reason == Reason::direct_apply;
+    const auto node = attributed && !owner.path.empty() ? owner.path.back().address : 0;
+    if (direct.match != DirectMatch::none && direct.match != DirectMatch::matched) {
+      // A slot +64 return from 8218EA38 without a matching captured entry means
+      // the capture and the call disagree; say so instead of guessing an owner.
+      REXLOG_WARN("engine_trace direct_apply capture {} geometry={:08X} depth={}",
+                  DirectMatchName(direct.match), ctx.r3.u32, direct_apply.Depth());
+    }
+    if (direct_application) {
+      // Numbers only, no attribution: 0 matches means a genuine non-list
+      // submission; >1 means a bare pointer search cannot pick a single owner.
+      REXLOG_INFO("engine_trace direct_membership frame={} geometry={:08X} live_packets={} "
+                  "current_packets={} packets_matching={} entries_matching={} "
+                  "frame_packets_matching={} frame_entries_matching={} unique={} unique_packet={:08X} "
+                  "unique_index={} bound_geometry={:08X} bound_match={}",
+                  rex::ui::temporal::GuestSwapCount(), ctx.r3.u32, membership.live_packets,
+                  membership.current_packets, membership.packets_matching,
+                  membership.entries_matching, membership.frame_packets_matching,
+                  membership.frame_entries_matching, membership.unique,
+                  membership.unique_packet, membership.unique_index, bound_geometry,
+                  bound_geometry == ctx.r3.u32);
+    }
     std::string path;
     for (auto entry : owner.path) path += fmt::format("{:08X}@{}/", entry.address, entry.token);
     const auto ordinal = marker_ordinal;
@@ -209,10 +279,14 @@ REX_HOOK_RAW(sub_8232E5E0) {
     const bool emitted = Emit(ctx, base, M::kInstance, marker_id, ctx.r3.u32);
     REXLOG_INFO("engine_trace provenance frame={} marker={} ordinal={} packet={:08X} packet_life={} "
                 "marker_id={:08X} node={:08X} index={} record={:08X} geometry={:08X} geometry_life={} instance={} part={} "
-                "part_index={} submit={:08X} caller={:08X} reason={} emitted={} path={}",
+                "part_index={} submit={:08X} caller={:08X} reason={} emitted={} path={} "
+                "applied={} traversal_depth={} direct_frame={} direct_selector={} "
+                "direct_selector_captured={} direct_selector_zero={}",
                 rex::ui::temporal::GuestSwapCount(), ordinal, instance_ordinal++, consumer.packet,
                 consumer.token, marker_id, node, index, owner.record, ctx.r3.u32, owner.geometry_life, owner.instance,
-                owner.part, owner.part_index, owner.caller, uint32_t(ctx.lr), ReasonName(owner.reason), emitted, path);
+                owner.part, owner.part_index, owner.caller, uint32_t(ctx.lr), ReasonName(owner.reason), emitted, path,
+                applied, traversal.path.size(), DirectMatchName(direct.match), direct.selector,
+                direct.selector_valid, direct.selector_valid && direct.selector == 0);
   }
   __imp__sub_8232E5E0(ctx, base);
 }
