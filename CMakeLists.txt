@@ -56,6 +56,7 @@ endif()
 set(GIANTSRECOMP_SOURCES
     src/main.cpp
     src/game/kernel_stubs.cpp
+    src/hooks/engine_trace_hook.cpp
     src/hooks/decompression_hook.cpp
     src/hooks/intro_skip_hook.cpp
     src/hooks/ultrawide_hook.cpp
@@ -159,6 +160,10 @@ file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/netplay_build.h"
 target_include_directories(giantsrecompiled PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
 enable_testing()
+add_executable(giantsrecomp_engine_trace_test tests/engine_trace_test.cpp)
+target_include_directories(giantsrecomp_engine_trace_test PRIVATE src)
+target_link_libraries(giantsrecomp_engine_trace_test PRIVATE rexruntime)
+add_test(NAME engine_trace COMMAND giantsrecomp_engine_trace_test)
 add_executable(giantsrecomp_tests tests/xex_verify_test.cpp)
 target_link_libraries(giantsrecomp_tests PRIVATE giantsrecomp_verify)
 add_test(NAME xex_verify COMMAND giantsrecomp_tests)
