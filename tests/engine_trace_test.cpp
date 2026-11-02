@@ -40,4 +40,38 @@ int main() {
   CHECK(!AppendMarker(base, 128, {M::kBegin, 11, 0, 0}));
   store_and_swap<uint32_t>(base + 176, 300);
   CHECK(!AppendMarker(base, 128, {M::kBegin, 11, 0, 0}));
+  store_and_swap<uint32_t>(base + 176, 276);
+  store_and_swap<uint32_t>(base + 180, 444);
+  int refills = 0;
+  bool saw_threshold = false;
+  CHECK(AppendMarker(base, 128, {M::kInstance, 12, 301, 401}, [&] {
+    ++refills;
+    saw_threshold = load_and_swap<uint32_t>(base + 176) == 288;
+    store_and_swap<uint32_t>(base + 176, 512);
+    store_and_swap<uint32_t>(base + 184, 600);
+  }));
+  CHECK(refills == 1 && saw_threshold);
+  CHECK(load_and_swap<uint32_t>(base + 280) == 0x80000000);
+  CHECK(load_and_swap<uint32_t>(base + 288) == 0x80000000);
+  CHECK(load_and_swap<uint32_t>(base + 516) == M::kPacket);
+  CHECK(load_and_swap<uint32_t>(base + 540) == 401);
+  store_and_swap<uint32_t>(base + 176, 596);
+  store_and_swap<uint32_t>(base + 180, 760);
+  CHECK(!AppendMarker(base, 128, {M::kEnd, 12, 0, 0}, [&] { ++refills; }));
+  CHECK(refills == 2);
+  CHECK(load_and_swap<uint32_t>(base + 176) == 604);
+  store_and_swap<uint32_t>(base + 176, 596);
+  store_and_swap<uint32_t>(base + 180, 600);
+  before = memory;
+  CHECK(!AppendMarker(base, 128, {M::kEnd, 12, 0, 0}, [&] { ++refills; }));
+  CHECK(refills == 2 && memory == before);
+  store_and_swap<uint32_t>(base + 176, 620);
+  store_and_swap<uint32_t>(base + 180, 760);
+  CHECK(AppendMarker(base, 128, {M::kEnd, 13, 0, 0}, [&] {
+    ++refills;
+    saw_threshold = load_and_swap<uint32_t>(base + 176) == 620;
+    store_and_swap<uint32_t>(base + 176, 640);
+    store_and_swap<uint32_t>(base + 184, 740);
+  }));
+  CHECK(refills == 3 && saw_threshold);
 }
