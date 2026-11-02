@@ -36,6 +36,36 @@ import-and-analyze operation PyGhidra doesn't need to wrap.
 
 ## Workflow
 
+### Native Linux
+
+Use the installed Ghidra with its matching XEXLoaderWV extension and a Python environment
+containing `pyghidra` and `ghidra-mcp[headless]`. The PowerShell setup above downloads Windows
+tools. Keep the project under ignored `logs/ghidra_project/`.
+
+Import without analysis first, then stop the server before repairing the PPC register-save
+helpers:
+
+```bash
+export GHIDRA_INSTALL_DIR=/opt/ghidra
+ghidra-mcp --headless --binary "$PWD/rom/default.xex" \
+  --project "$PWD/logs/ghidra_project" --project-name giantsrecomp --no-analyze
+# After import, stop that server so the project is unlocked.
+python tools/ghidra_fix_ppc_helpers.py logs/ghidra_project giantsrecomp
+```
+
+The repair validates the pinned XEX and helper instructions, models all 18 overlapping
+register-save entry points as inline fallthrough functions, disables the analyzer that falsely
+classifies them as non-returning, and runs analysis. It saves only after checking a known UI
+function still has its argument and full body. Without this, decompilation may stop at the
+first `__savegprlr` call or incorrectly treat it as returning the function's argument.
+
+Then use `ghidra_dump_function.py` with the same Python environment, or configure the MCP server
+with the headless command above without `--no-analyze`. Headless mode owns its backend and needs
+no GUI or fixed HTTP port. Verify `get_program_info` names `default.xex` before analysis; the
+usual GUI default, port 8080, may belong to another application.
+
+### Naming functions
+
 1. `pwsh tools/ghidra_re.ps1 dump <address>` — prints the function's decompiled C, its
    callers/callees, and any referenced string literals. Read this to work out what the
    function does.
