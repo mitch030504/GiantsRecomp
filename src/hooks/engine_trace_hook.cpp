@@ -1,5 +1,6 @@
 #include "engine_trace.h"
 #include "engine_provenance.h"
+#include "motion_key.h"
 
 #include <rex/cvar.h>
 #include <rex/hook.h>
@@ -22,6 +23,12 @@ REXCVAR_DEFINE_BOOL(nr_engine_trace_transforms, false, "Graphics",
 REXCVAR_DEFINE_INT32(nr_engine_trace_transform_rows, 4096, "Graphics",
                      "Development: per-frame cap on engine_trace transform rows.")
     .range(1, 65536).lifecycle(rex::cvar::Lifecycle::kInitOnly);
+// Enables the identity bookkeeping and the per-draw motion key on every frame. It
+// does not turn on the per-draw trace rows (those still need an nr_engine_trace
+// window), and it does not enable neural rendering.
+REXCVAR_DEFINE_BOOL(motion_guide, false, "Graphics",
+                    "Development: per-draw motion keys for the Phase 2 guide.")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
 REX_EXTERN(__imp__sub_823D1C10);
 
@@ -47,8 +54,21 @@ thread_local DirectApply direct_apply;
 thread_local TransformCapture transform_capture;
 thread_local TransformBudget transform_budget;
 
-bool Enabled() { return REXCVAR_GET(nr_engine_trace_frame) >= 0; }
+bool TraceEnabled() { return REXCVAR_GET(nr_engine_trace_frame) >= 0; }
+// The trace row/log window, distinct from Enable being configured at all: with
+// motion_guide on, identity runs every frame but rows must still honour the window.
+bool TraceSelectedNow() {
+  return TraceSelected(REXCVAR_GET(nr_engine_trace_frame), REXCVAR_GET(nr_engine_trace_frames),
+                       rex::ui::temporal::GuestSwapCount());
+}
+// The motion guide needs the same identity bookkeeping on every frame, not inside a
+// one-frame trace window, so it enables that path without enabling the trace rows.
+bool MotionEnabled() { return REXCVAR_GET(motion_guide); }
+bool Enabled() { return TraceEnabled() || MotionEnabled(); }
 bool Selected() {
+  // A motion capture is every frame by definition: a trace window would cap it at
+  // nr_engine_trace_frames (1 by default) and make the guide untestable.
+  if (MotionEnabled()) return true;
   return TraceSelected(REXCVAR_GET(nr_engine_trace_frame), REXCVAR_GET(nr_engine_trace_frames),
                        rex::ui::temporal::GuestSwapCount());
 }
@@ -76,8 +96,16 @@ bool Emit(PPCContext& ctx, uint8_t* base, M::Kind kind, uint32_t node = 0, uint3
           __imp__sub_823D1C10(refill_ctx, base);
         });
   ++marker_ordinal;
-  if (!emitted) REXLOG_WARN("engine_trace marker dropped kind={} node={:08X}; trace incomplete",
-                            uint32_t(kind), node);
+  if (!emitted) {
+    // Bounded: motion_guide calls this every frame, so a persistent drop would both
+    // flood the log and mean the guide silently lost keys - say it a few times.
+    static thread_local uint32_t drop_logs = 0;
+    if (drop_logs < 8) {
+      ++drop_logs;
+      REXLOG_WARN("engine_trace marker dropped kind={} node={:08X}; trace incomplete",
+                  uint32_t(kind), node);
+    }
+  }
   return emitted;
 }
 
@@ -105,7 +133,7 @@ REX_HOOK_RAW(sub_82275428) {
   if (Enabled()) {
     const auto address = ctx.r3.u32;
     const auto token = provenance.Retire(address);
-    if (token) REXLOG_INFO("engine_trace retire frame={} object={:08X} lifetime={}",
+    if (token && TraceSelectedNow()) REXLOG_INFO("engine_trace retire frame={} object={:08X} lifetime={}",
                           rex::ui::temporal::GuestSwapCount(), address, token);
   }
   __imp__sub_82275428(ctx, base);
@@ -145,7 +173,8 @@ REX_HOOK_RAW(sub_822DE248) {
   if (caller == 0x822DE3D4 && !submissions.empty()) {
     const auto& submission = submissions.back();
     if (!provenance.BindChunk(base, manager, traversal, submission.begin, submission.end,
-                              input, destination, count, submission.caller))
+                              input, destination, count, submission.caller) &&
+        TraceSelectedNow())
       REXLOG_WARN("engine_trace invalid submission; provenance missing");
   }
 }
@@ -170,7 +199,8 @@ REX_HOOK_RAW(sub_822DEE70) {
   const auto start = ReadList(base, scope.packet).size();
   const auto expected = provenance.Predict(base, ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r7.u32);
   __imp__sub_822DEE70(ctx, base);
-  if (!provenance.Publish(scope.packet, scope.token, start, expected, ReadList(base, scope.packet)))
+  if (!provenance.Publish(scope.packet, scope.token, start, expected, ReadList(base, scope.packet)) &&
+      TraceSelectedNow())
     REXLOG_WARN("engine_trace flatten mismatch packet={:08X} lifetime={}; unresolved",
                 scope.packet, scope.token);
 }
@@ -210,7 +240,7 @@ REX_HOOK_RAW(sub_8218EA38) {
   frame.selector_valid = ReadDirectSelector(base, frame.r3, frame.selector);
   const bool pushed = direct_apply.Push(frame);
   const auto top = traversal.path.empty() ? 0 : traversal.path.back().address;
-  REXLOG_INFO("engine_trace direct_apply frame={} r3={:08X} r4={:08X} r5={:08X} r6={:08X} "
+  if (TraceSelectedNow()) REXLOG_INFO("engine_trace direct_apply frame={} r3={:08X} r4={:08X} r5={:08X} r6={:08X} "
               "selector={} selector_captured={} selector_zero={} depth={} captured={} dropped={} "
               "traversal_depth={} traversal_top={:08X}",
               rex::ui::temporal::GuestSwapCount(), frame.r3, frame.r4, frame.r5, frame.r6,
@@ -284,10 +314,11 @@ REX_HOOK_RAW(sub_8232E5E0) {
     if (direct.match != DirectMatch::none && direct.match != DirectMatch::matched) {
       // A slot +64 return from 8218EA38 without a matching captured entry means
       // the capture and the call disagree; say so instead of guessing an owner.
-      REXLOG_WARN("engine_trace direct_apply capture {} geometry={:08X} depth={}",
-                  DirectMatchName(direct.match), ctx.r3.u32, direct_apply.Depth());
+      if (TraceSelectedNow())
+        REXLOG_WARN("engine_trace direct_apply capture {} geometry={:08X} depth={}",
+                    DirectMatchName(direct.match), ctx.r3.u32, direct_apply.Depth());
     }
-    if (direct_application) {
+    if (direct_application && TraceSelectedNow()) {
       // Numbers only, no attribution: 0 matches means a genuine non-list
       // submission; >1 means a bare pointer search cannot pick a single owner.
       REXLOG_INFO("engine_trace direct_membership frame={} geometry={:08X} live_packets={} "
@@ -306,17 +337,33 @@ REX_HOOK_RAW(sub_8232E5E0) {
     const auto ordinal = marker_ordinal;
     // Output tiles replay PM4: carry the source ordinal in the existing node word.
     const auto marker_id = instance_ordinal + 1;
+    // The motion key exists only for an attributed draw: an unresolved owner has no
+    // stable identity, and the guide must never invent one for it.
+    const bool keyed = MotionEnabled() && attributed && owner.instance != 0;
+    uint64_t motion_key = 0;
+    if (keyed) {
+      motion_key = giantsrecomp::motion::Key(owner.instance, owner.part, ctx.r3.u32,
+                                             owner.geometry_life);
+    }
     const bool emitted = Emit(ctx, base, M::kInstance, marker_id, ctx.r3.u32);
-    REXLOG_INFO("engine_trace provenance frame={} marker={} ordinal={} packet={:08X} packet_life={} "
+    if (keyed) {
+      // After kInstance on purpose: the instance marker's ordinal is part of the
+      // output-tile replay contract, so inserting the key before it would shift
+      // every ordinal. Both markers still precede the guest's draw packet, so the
+      // processor sees the key before the draw that consumes it.
+      Emit(ctx, base, M::kMotion, uint32_t(motion_key), uint32_t(motion_key >> 32));
+    }
+    if (TraceSelectedNow())
+      REXLOG_INFO("engine_trace provenance frame={} marker={} ordinal={} packet={:08X} packet_life={} "
                 "marker_id={:08X} node={:08X} index={} record={:08X} geometry={:08X} geometry_life={} instance={} part={} "
                 "part_index={} submit={:08X} caller={:08X} reason={} emitted={} path={} "
                 "applied={} traversal_depth={} direct_frame={} direct_selector={} "
-                "direct_selector_captured={} direct_selector_zero={}",
+                "direct_selector_captured={} direct_selector_zero={} motion_key={:016X}",
                 rex::ui::temporal::GuestSwapCount(), ordinal, instance_ordinal++, consumer.packet,
                 consumer.token, marker_id, node, index, owner.record, ctx.r3.u32, owner.geometry_life, owner.instance,
                 owner.part, owner.part_index, owner.caller, uint32_t(ctx.lr), ReasonName(owner.reason), emitted, path,
                 applied, traversal.path.size(), DirectMatchName(direct.match), direct.selector,
-                direct.selector_valid, direct.selector_valid && direct.selector == 0);
+                direct.selector_valid, direct.selector_valid && direct.selector == 0, motion_key);
     // The draw is the join point. `owner.instance` came from this same occurrence,
     // so the row's instance is the one that draws; the matrix is whatever this
     // thread applied last, and age/fresh say how much happened in between.

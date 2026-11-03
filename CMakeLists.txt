@@ -218,3 +218,10 @@ add_test(NAME netplay_figure_sync COMMAND giantsrecomp_netplay_figure_sync_test)
 add_executable(giantsrecomp_portal_ipc_request_test tests/portal_ipc_request_test.cpp)
 target_include_directories(giantsrecomp_portal_ipc_request_test PRIVATE src)
 add_test(NAME portal_ipc_request COMMAND giantsrecomp_portal_ipc_request_test)
+
+# Motion-guide identity key: stable for the same draw identity, different when any of
+# (instance, part, geometry, geometry_life) changes, and exactly splittable into the
+# two 32-bit words the marker and the system constants carry.
+add_executable(giantsrecomp_motion_key_test tests/motion_key_test.cpp)
+target_include_directories(giantsrecomp_motion_key_test PRIVATE src)
+add_test(NAME motion_key COMMAND giantsrecomp_motion_key_test)
