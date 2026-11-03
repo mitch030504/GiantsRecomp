@@ -225,3 +225,20 @@ add_test(NAME portal_ipc_request COMMAND giantsrecomp_portal_ipc_request_test)
 add_executable(giantsrecomp_motion_key_test tests/motion_key_test.cpp)
 target_include_directories(giantsrecomp_motion_key_test PRIVATE src)
 add_test(NAME motion_key COMMAND giantsrecomp_motion_key_test)
+
+# Motion-guide analyzer: pure-Python gate over synthetic dumps (numpy only). It is
+# registered only when an interpreter with numpy is available, so a machine without
+# the analysis dependency can still configure and build the game.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import numpy"
+                    RESULT_VARIABLE GIANTSRECOMP_NUMPY_RESULT
+                    OUTPUT_QUIET ERROR_QUIET)
+    if(GIANTSRECOMP_NUMPY_RESULT EQUAL 0)
+        add_test(NAME motion_guide_analysis
+                 COMMAND "${Python3_EXECUTABLE}"
+                         "${CMAKE_CURRENT_SOURCE_DIR}/tests/motion_guide_analysis_test.py")
+    else()
+        message(STATUS "numpy not found; motion_guide_analysis test not registered")
+    endif()
+endif()

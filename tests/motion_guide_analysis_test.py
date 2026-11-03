@@ -165,12 +165,14 @@ assert module.MIN_MOVING_FRACTION == 0.02, module.MIN_MOVING_FRACTION
 assert module.LOCAL_DEVIATION_NDC == 0.01, module.LOCAL_DEVIATION_NDC
 assert module.COVERAGE_MIN == 0.95, module.COVERAGE_MIN
 assert module.VALIDITY_BAND == (0.20, 1.0), module.VALIDITY_BAND
-assert module.PAN_DETECT_NDC == 0.005, module.PAN_DETECT_NDC
+assert module.PAN_DETECT_NDC == 0.002, module.PAN_DETECT_NDC
+assert module.STATIC_TAIL_MAX_NDC == 0.01, module.STATIC_TAIL_MAX_NDC
+assert module.SIGN_GATE_RADIAL_TOL_SCALE == 1.5, module.SIGN_GATE_RADIAL_TOL_SCALE
 assert module.JITTER_LIKE_MAX_NDC == 0.002, module.JITTER_LIKE_MAX_NDC
 assert module.DIRECTION_BIN_DEG == 15.0, module.DIRECTION_BIN_DEG
 assert module.SIGN_GATE_MIN_SHIFT_PX == 0.5, module.SIGN_GATE_MIN_SHIFT_PX
 assert module.SIGN_GATE_TOL_FRACTION == 0.10, module.SIGN_GATE_TOL_FRACTION
-assert module.SIGN_GATE_TOL_MIN_PX == 1.0, module.SIGN_GATE_TOL_MIN_PX
+assert module.SIGN_GATE_TOL_MIN_PX == 0.5, module.SIGN_GATE_TOL_MIN_PX
 assert module.MOTION_FRAME_NAME.match('m10800.bin'), 'm<frame>.bin naming changed'
 assert module.COLOUR_FRAME_NAME.match('c10800.bin'), 'c<frame>.bin naming changed'
 
@@ -207,13 +209,15 @@ assert result.returncode == 1, '--require-local-motion must turn absence into a 
 assert failed_ids(result.stdout) == ['local-motion'], failed_ids(result.stdout)
 
 # 1 px of motion is 0.002 NDC at 1000 wide, above the 0.0003 gate. The
-# two-value checker keeps the field non-constant, so only static-p99 fails.
+# two-value checker keeps the field non-constant, so only static-p99 fails. Auto
+# now classifies a 1 px median as a pan (the old 2.5 px fallback misclassified a
+# real 2.3 px pan), so the static intent is stated explicitly.
 noise_dir = WORK / 'noise'
 yy, xx = np.indices((HEIGHT, WIDTH))
 checker = ((xx + yy) % 2).astype(np.float32)
 noise = write_motion(noise_dir / 'm20001.bin', 0.002 + 0.0004 * checker, zero,
                      border_valid())
-result = run(noise)
+result = run(noise, '--expect', 'static')
 assert result.returncode == 1, f'1 px noise must fail the p99 gate, got {result.returncode}'
 assert failed_ids(result.stdout) == ['static-p99'], failed_ids(result.stdout)
 assert '>= 0.0003' in result.stdout, 'the p99 failure does not name the pinned threshold'
@@ -381,7 +385,7 @@ huge[300, 500] = 0.6
 big = write_motion(WORK / 'huge' / 'm40001.bin', huge, zero, border_valid())
 result = run(big)
 assert result.returncode == 1, 'a 0.6 NDC vector must fail the bound'
-assert failed_ids(result.stdout) == ['motion-bound'], failed_ids(result.stdout)
+assert failed_ids(result.stdout) == ['motion-bound', 'static-tail'], failed_ids(result.stdout)
 
 # A fully valid static frame is accepted: every screen pixel, the sky included,
 # is covered by a keyed draw, so the validity gate works rather than being stuck
@@ -395,7 +399,8 @@ assert 'validity' not in failed_ids(result.stdout), failed_ids(result.stdout)
 # --- 9. --expect overrides the auto static/pan classification -------------
 result = run(happy, '--expect', 'static')
 assert result.returncode == 1, '--expect static on a pan must force the p99 gate'
-assert failed_ids(result.stdout) == ['static-p99'], failed_ids(result.stdout)
+forced = failed_ids(result.stdout)
+assert 'static-p99' in forced and 'static-tail' in forced, forced
 
 # --- 10. JSON keys and directory ordering are stable ----------------------
 result = run(happy, '--json')
@@ -430,8 +435,8 @@ for check in frame['checks']:
         assert key in check, f'missing check JSON key: {key}'
 assert [check['id'] for check in frame['checks']] == [
     'size', 'finite', 'motion-bound', 'validity-binary', 'static-p99',
-    'sign-scale', 'coherence', 'local-motion', 'coverage', 'validity',
-    'channel-sanity'], [check['id'] for check in frame['checks']]
+    'static-tail', 'sign-scale', 'coherence', 'local-motion', 'coverage',
+    'sky', 'validity', 'channel-sanity'], [check['id'] for check in frame['checks']]
 assert payload['conventions']['static_p99_px_horizontal'] == 0.15, payload['conventions']
 assert payload['conventions']['coherence'] == 'smoke test, not a sign test'
 
@@ -550,7 +555,8 @@ assert close(sign['colour_shift_px'][1], -2.0, 0.05), sign
 assert close(sign['motion_shift_px'][0], 3.0, 0.01), sign
 assert close(sign['motion_shift_px'][1], -2.0, 0.01), sign
 assert close(sign['ratio'], 1.0, 0.01), sign
-assert sign['tolerance_px'] >= 1.0, sign
+assert sign['tolerance_px'] == 0.5, sign
+assert sign['radial_tolerance_px'] == 0.75, sign
 assert sign['sign_x_ok'] is True and sign['sign_y_ok'] is True, sign
 assert frame['stats']['expect_effective'] == 'pan', frame['stats']
 assert sign['previous_file'].endswith('c10799.bin'), sign
@@ -714,13 +720,115 @@ assert result.returncode == 0, f'reserved z must not fail the run:\n{result.stdo
 assert 'reserved z' in result.stdout, 'a nonzero reserved channel was not reported'
 assert '[WARN]' in result.stdout, 'the reserved-channel diagnostic is not a warning'
 
+# --- 14. strict mode and the gates added after the first measurement ------
+# A fully valid zero field on a declared pan proves nothing: strict must fail
+# because sign-scale and coherence cannot pass without colour.
+zero_pan_dir = WORK / 'zero-pan'
+zero_pan = write_motion(zero_pan_dir / 'm10810.bin', zero, zero,
+                        np.ones((HEIGHT, WIDTH), dtype=np.float32))
+write_depth(zero_pan_dir / 'd10810.bin', np.full((HEIGHT, WIDTH), 0.97,
+                                                 dtype=np.float32))
+result = run(zero_pan, '--expect', 'pan', '--strict')
+assert result.returncode == 1, result.stdout
+assert 'strict: required check' in result.stdout, result.stdout
+result = run(zero_pan, '--strict', '--require-motion')
+assert result.returncode == 1, result.stdout
+assert 'window-motion' in result.stdout, result.stdout
+# ...but a fully valid static frame with depth is accepted in strict mode.
+result = run(zero_pan, '--depth', zero_pan_dir, '--strict')
+assert result.returncode == 0, f'a fully valid static frame must pass strict:\n{result.stdout}'
+
+# A constant 0.1 px field is jitter, and --expect pan must not relabel it as a
+# genuine uniform pan.
+jitter_pan = write_motion(WORK / 'jitter-pan' / 'm10811.bin',
+                          np.full((HEIGHT, WIDTH), 0.0002, dtype=np.float32),
+                          zero, np.ones((HEIGHT, WIDTH), dtype=np.float32))
+result = run(jitter_pan, '--expect', 'pan')
+assert result.returncode == 1, 'a 0.1 px constant field must fail as jitter'
+assert failed_ids(result.stdout) == ['channel-sanity'], failed_ids(result.stdout)
+
+# p99 ignores the top 1%; a 0.5% tail at 0.4 NDC is 200 px of corruption and
+# must fail the static tail gate even though the bound (0.5) and p99 pass.
+tail = zero.copy()
+tail[::200, :] = 0.4
+tail_frame = write_motion(WORK / 'tail' / 'm10812.bin', tail, zero,
+                          np.ones((HEIGHT, WIDTH), dtype=np.float32))
+result = run(tail_frame)
+assert result.returncode == 1, 'a 0.4 NDC tail must fail as a static field'
+assert failed_ids(result.stdout) == ['static-tail'], failed_ids(result.stdout)
+
+# Sky content: 30% sky with zero motion under a rotation declaration is garbage;
+# zero sky is legitimate for a translation, so the default (either) must pass it.
+sky_pan_dir = WORK / 'sky-pan'
+sky_depth = np.full((HEIGHT, WIDTH), 0.97, dtype=np.float32)
+sky_depth[:180, :] = 1.0
+sky_x = np.full((HEIGHT, WIDTH), 2.0 * 2.0 / WIDTH, dtype=np.float32)
+sky_x[:180, :] = 0.0
+sky_valid = np.ones((HEIGHT, WIDTH), dtype=np.float32)
+sky_frame = write_motion(sky_pan_dir / 'm10813.bin', sky_x, zero, sky_valid)
+write_depth(sky_pan_dir / 'd10813.bin', sky_depth)
+write_colour_pair(sky_pan_dir, 10812, 10813, 2.0, 0.0, seed=21)
+result = run(sky_frame, '--depth', sky_pan_dir, '--colour', sky_pan_dir,
+             '--sky-mode', 'rotation')
+assert result.returncode == 1, result.stdout
+assert 'sky' in failed_ids(result.stdout), failed_ids(result.stdout)
+result = run(sky_frame, '--depth', sky_pan_dir, '--colour', sky_pan_dir)
+assert result.returncode == 0, f'translation-zero sky must pass (either):\n{result.stdout}'
+
+# A scene with 30% sky and no valid sky pixel is broken even on a static frame.
+sky_invalid = write_motion(WORK / 'sky-invalid' / 'm10814.bin', zero, zero,
+                           np.where(sky_depth == 1.0, 0.0, 1.0).astype(np.float32))
+write_depth(WORK / 'sky-invalid' / 'd10814.bin', sky_depth)
+result = run(sky_invalid, '--depth', WORK / 'sky-invalid')
+assert result.returncode == 1, result.stdout
+assert 'sky' in failed_ids(result.stdout), failed_ids(result.stdout)
+
+# Depth sky tolerance: 0.999999 is sky, not drawn; the coverage cross-check must
+# not count it as 100% drawn.
+eps_depth = WORK / 'sky-eps'
+write_depth(eps_depth / 'd10815.bin',
+            np.full((HEIGHT, WIDTH), 0.999999, dtype=np.float32))
+eps_motion = write_motion(eps_depth / 'm10815.bin', zero, zero,
+                          np.ones((HEIGHT, WIDTH), dtype=np.float32))
+payload = json.loads(run(eps_motion, '--depth', eps_depth, '--json').stdout)
+assert payload['frames'][0]['coverage']['drawn_pixels'] == 0, payload['frames'][0]['coverage']
+assert payload['frames'][0]['coverage']['status'] != 'pass', payload['frames'][0]['coverage']
+
+# A flat colour pair has no usable phase; the shift is undefined, never [0, 0].
+flat_colour = WORK / 'flat-colour'
+flat_motion = write_motion(flat_colour / 'm10816.bin',
+                           *colour_motion(2.0, 0.0))
+write_colour(flat_colour / 'c10815.bin', 128)
+write_colour(flat_colour / 'c10816.bin', 128)
+payload = json.loads(run(flat_motion, '--colour', flat_colour, '--json').stdout)
+assert payload['frames'][0]['colour']['shift_px'] is None, payload['frames'][0]['colour']
+assert payload['frames'][0]['sign_scale']['status'] == 'skip', payload['frames'][0]['sign_scale']
+
+# Small-pan scale: 1.5 px of motion against a 0.6 px colour shift is a 2.5x scale
+# error; the old 1 px floor passed it. The new 0.5 px floor must fail it.
+small_dir = WORK / 'small-pan'
+small_motion = write_motion(small_dir / 'm10817.bin', *colour_motion(1.5, 0.0))
+write_colour_pair(small_dir, 10816, 10817, 0.6, 0.0, seed=22)
+result = run(small_motion, '--colour', small_dir)
+assert result.returncode == 1, result.stdout
+assert failed_ids(result.stdout) == ['sign-scale'], failed_ids(result.stdout)
+
+# Stricter JSON contract: the new gate state is machine-readable.
+payload = json.loads(run(zero_pan, '--json').stdout)
+for key in ('strict', 'sky_mode', 'require_motion', 'required_checks',
+            'skipped_checks', 'window_motion', 'accepted'):
+    assert key in payload, f'missing JSON key: {key}'
+assert payload['accepted'] is True, payload
+assert payload['window_motion']['frames'] == 1, payload['window_motion']
+
 WORK_DIR.cleanup()
 print('motion guide analysis: contract size/format, pinned thresholds, static p99 '
       '(1 px noise fails), phase-correlated sign/scale (known pan passes; Y flip, '
       'x/y swap, 2x scale fail distinctly; sub-0.5 px skips), auto follows the '
       'measured colour shift, pan coherence (x/y swap fails), local motion as a '
       'finding, depth coverage (low coverage fails, valid sky allowed and '
-      'reported, invalid above scene counted), validity band, constant-jitter '
+      'reported, invalid above scene counted, sky content checked), validity '
+      'band, static tail, strict-mode SKIP rejection, window-motion, constant-jitter '
       'failure, exit-2 input '
       'rejection, --json contract, numeric frame order, companion prefix filtering, '
       '--min-frames, optional/validated --colour, and reserved-z warning all hold')

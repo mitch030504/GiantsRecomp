@@ -57,11 +57,22 @@ COLOUR_BYTES = WIDTH * HEIGHT * 4                            # 2,400,000
 # 0.5 NDC = 250 px horizontally: no legitimate one-frame motion should exceed a
 # quarter of the screen width. This is a corruption bound, not a pan limit.
 MAX_NDC_MOTION = 0.5
-# Static-camera smoke gate. Clip-space NDC spans 2.0 across the viewport, so one
-# pixel is 2/WIDTH NDC; see the module docstring for the px conversion.
+# Static-camera gate. At 1000x600 one pixel is 2/WIDTH NDC horizontally and
+# 2/HEIGHT vertically, so 0.0003 NDC is 0.15 px horizontally and 0.09 px
+# vertically; a 1 px shift (0.002 NDC) fails. p99 alone ignores the top 1%, so a
+# static tail gate also bounds the maximum: a 0.4 NDC outlier tail passes p99 but
+# must never pass as a static field.
 STATIC_P99_NDC = 0.0003
-STATIC_P99_PX_HORIZONTAL = STATIC_P99_NDC * WIDTH / 2.0      # 0.75
-STATIC_P99_PX_VERTICAL = STATIC_P99_NDC * HEIGHT / 2.0       # 0.45
+STATIC_P99_PX_HORIZONTAL = STATIC_P99_NDC * WIDTH / 2.0      # 0.15
+STATIC_P99_PX_VERTICAL = STATIC_P99_NDC * HEIGHT / 2.0       # 0.09
+STATIC_TAIL_MAX_NDC = 0.01                                   # 5 px
+# Sky content: the skybox writes an attachment with depth write off, so the sky
+# is a legitimate part of the field. Its motion is zero for a translating camera
+# and follows the scene for a rotating one, so either is accepted; a sky that is
+# neither is garbage that a valid-over-sky count alone cannot catch.
+MIN_SKY_FRACTION = 0.05
+SKY_MATCH_RATIO = 0.10
+SKY_MATCH_MIN_PX = 1.0
 # Global coherence: median length vs direction MAD, and median direction vs the
 # mean of the largest 10%. Length is in pixels, MAD in radians; the ratio is a
 # coarse smoke heuristic (a tight pan has MAD ~0, a direction soup ~1 rad), not
@@ -75,21 +86,30 @@ TOP_DECILE = 0.10
 # Below this the median vector is effectively zero, so direction is undefined
 # and the pan smoke test is skipped rather than fed a meaningless angle.
 COHERENCE_MIN_PAN_PIXELS = 0.01
-# Above 2.5 px/frame the frame is a pan, not a static camera. In auto mode this
+# Above 1 px/frame the frame is a pan, not a static camera. In auto mode this
 # motion-median detector is only the fallback when no colour shift is
 # measurable; a measurable colour shift (>= SIGN_GATE_MIN_SHIFT_PX) selects pan
-# instead. The detector is the median, so a frame whose majority is an
-# independently moving object is mistaken for a pan; --expect static overrides.
-PAN_DETECT_NDC = 0.005
+# instead. 2.5 px was the old value and misclassified a real 2.3 px pan because
+# the static gate is 0.15 px; 1 px keeps the two bands contiguous enough.
+PAN_DETECT_NDC = 0.002
 # Sign/scale gate. The median valid motion must match the phase-correlated
-# colour shift within 10% of that shift, floored at 1 px; below 0.5 px the
-# colour shift cannot establish a sign and the gate is skipped, never passed.
+# colour shift within 10% of that shift, floored at 0.5 px (one pixel at the
+# static gate, and below the 0.5 px minimum shift the gate skips anyway); a 1 px
+# floor made a 1.5 px motion against a 0.6 px colour shift pass, so the scale
+# check was vacuous for small pans. The radial error is additionally bounded by
+# 1.5x the per-axis tolerance so a near-symmetric x/y swap cannot pass on both
+# axes.
 SIGN_GATE_MIN_SHIFT_PX = 0.5
 SIGN_GATE_TOL_FRACTION = 0.10
-SIGN_GATE_TOL_MIN_PX = 1.0
+SIGN_GATE_TOL_MIN_PX = 0.5
+SIGN_GATE_RADIAL_TOL_SCALE = 1.5
 # Cross-power normalisation floor. A flat frame has no usable phase; it yields
 # a zero correlation and the below-0.5-px skip rather than a failure.
 PHASE_CORR_EPS = 1e-12
+# A pair with less luma spread than this has no usable phase (black transition
+# or a flat frame); the correlation peak would be an artefact. 0.05 works for
+# both the 0..1 luma used by the phase tests and the 0..255 game dump.
+BLANK_LUMA_STD = 0.05
 # Local motion: 2% of valid pixels must deviate from the frame median by more
 # than 0.01 NDC (5 px horizontally). Absence is a finding, not a hard failure.
 MIN_MOVING_FRACTION = 0.02
@@ -109,7 +129,7 @@ VALIDITY_BAND = (0.20, 1.0)
 CONSTANT_FRACTION = 0.999
 CONSTANT_TOL_NDC = 1e-5
 JITTER_LIKE_MAX_NDC = 0.002
-ZERO_EPS_NDC = 1e-6
+ZERO_EPS_NDC = 1e-4
 DIRECTION_BIN_DEG = 15.0
 
 MOTION_FRAME_NAME = re.compile(r'^m(?P<frame>\d+)\.bin$', re.IGNORECASE)
@@ -239,16 +259,19 @@ def phase_correlation_shift(previous_luma, current_luma):
                          f'{previous.shape} and {current.shape}')
     previous = previous - previous.mean()
     current = current - current.mean()
-    cross = np.fft.rfft2(current) * np.conj(np.fft.rfft2(previous))
-    magnitude = np.abs(cross)
-    usable = bool(np.any(magnitude > PHASE_CORR_EPS))
+    # A flat pair (black transition, a fully occluded frame) has no phase
+    # information: the peak is an artefact of the zero spectrum. Gate on the
+    # luma spread as well, and report shift_px as undefined rather than [0, 0],
+    # so auto mode cannot read a fabricated "static" from a blank pair.
+    usable = bool(np.any(np.abs(np.fft.rfft2(current)) > PHASE_CORR_EPS)
+                  and previous.std() >= BLANK_LUMA_STD
+                  and current.std() >= BLANK_LUMA_STD)
     if usable:
+        cross = np.fft.rfft2(current) * np.conj(np.fft.rfft2(previous))
+        magnitude = np.abs(cross)
         cross = cross / np.maximum(magnitude, PHASE_CORR_EPS)
     else:
-        # Flat frames: every bin is below the floor. The inverse transform of a
-        # zero spectrum peaks at 0, which the caller reports as an unmeasurable
-        # (below 0.5 px) shift rather than a pass.
-        cross = np.zeros_like(cross)
+        cross = np.zeros_like(np.fft.rfft2(current))
     corr = np.fft.irfft2(cross, s=(HEIGHT, WIDTH))
     iy, ix = np.unravel_index(int(np.argmax(corr)), corr.shape)
     dy = int(iy) if iy < HEIGHT / 2 else int(iy) - HEIGHT
@@ -256,10 +279,11 @@ def phase_correlation_shift(previous_luma, current_luma):
     fraction_y = _parabolic_offset(corr, iy, ix, 0)
     fraction_x = _parabolic_offset(corr, iy, ix, 1)
     return {
-        'shift_px': [round(dx + fraction_x, 4), round(dy + fraction_y, 4)],
+        'shift_px': ([round(dx + fraction_x, 4), round(dy + fraction_y, 4)]
+                     if usable else None),
         'peak': round(float(corr[iy, ix]), 6),
         'peak_found': usable,
-        'subpixel': bool(abs(fraction_x) > 1e-6 or abs(fraction_y) > 1e-6),
+        'subpixel': bool(usable and (abs(fraction_x) > 1e-6 or abs(fraction_y) > 1e-6)),
     }
 
 
@@ -489,7 +513,9 @@ def evaluate_sign_scale(med_px, valid_count, colour, effective, mode_reason):
     sign_x_ok = (not sign_x_tested) or (mx * cx > 0.0)
     sign_y_ok = (not sign_y_tested) or (my * cy > 0.0)
     axis_ok = abs(error[0]) <= tolerance and abs(error[1]) <= tolerance
-    ok = bool(axis_ok and sign_x_ok and sign_y_ok)
+    radial_tolerance = tolerance * SIGN_GATE_RADIAL_TOL_SCALE
+    radial_ok = error_len <= radial_tolerance
+    ok = bool(axis_ok and radial_ok and sign_x_ok and sign_y_ok)
     ratio = motion_len / shift_len
     detail.update({
         'status': 'pass' if ok else 'fail',
@@ -499,6 +525,7 @@ def evaluate_sign_scale(med_px, valid_count, colour, effective, mode_reason):
         'error_length_px': round(error_len, 4),
         'ratio': round(ratio, 4),
         'tolerance_px': round(tolerance, 4),
+        'radial_tolerance_px': round(radial_tolerance, 4),
         'sign_x_tested': bool(sign_x_tested),
         'sign_y_tested': bool(sign_y_tested),
         'sign_x_ok': bool(sign_x_ok) if sign_x_tested else None,
@@ -508,7 +535,8 @@ def evaluate_sign_scale(med_px, valid_count, colour, effective, mode_reason):
             f'({mx:+.3f}, {my:+.3f}) px; signed error ({error[0]:+.3f}, '
             f'{error[1]:+.3f}) px = {error_len:.3f} px; ratio {ratio:.3f}; '
             f'tolerance {tolerance:.3f} px (max({SIGN_GATE_TOL_MIN_PX:g} px, '
-            f'{SIGN_GATE_TOL_FRACTION:.0%} of {shift_len:.3f} px))')
+            f'{SIGN_GATE_TOL_FRACTION:.0%} of {shift_len:.3f} px)); radial '
+            f'tolerance {radial_tolerance:.3f} px')
     if ok:
         reason = (base + '; signs match where tested (axis >= '
                   f'{SIGN_GATE_MIN_SHIFT_PX} px), within tolerance')
@@ -517,14 +545,14 @@ def evaluate_sign_scale(med_px, valid_count, colour, effective, mode_reason):
     kind = classify_shift_failure(motion, shift, tolerance)
     detail['failure_kind'] = kind
     reason = (f'{kind} ({SHIFT_FAILURE_TEXT[kind]}): {base}; need '
-              f'|error| <= {tolerance:.3f} px per axis and the same sign on '
-              f'both axes')
+              f'|error| <= {tolerance:.3f} px per axis, radial error <= '
+              f'{radial_tolerance:.3f} px, and the same sign on both axes')
     detail['reason'] = reason
     return make_check('sign-scale', False, reason), detail
 
 
 def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
-             coverage_note=None, colour=None):
+             coverage_note=None, colour=None, sky_mode='either'):
     """Run the per-frame checks. Every reason says why the check exists."""
     x = motion[..., 0].astype(np.float32)
     y = motion[..., 1].astype(np.float32)
@@ -617,8 +645,11 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
     modal_len_px = float(np.hypot(*modal_px))
     uniform = bool(valid_count and constant_fraction >= CONSTANT_FRACTION)
     zero_field = bool(uniform and modal_len_ndc <= ZERO_EPS_NDC)
+    # A constant field at or below 1 px is jitter whether or not the caller
+    # declared a pan: --expect pan must not turn a 0.1 px residue into "a genuine
+    # uniform pan". A real pan of 1 px or more is above this bound.
     jitter_like = bool(uniform and not zero_field
-                       and modal_len_ndc <= JITTER_LIKE_MAX_NDC and expect != 'pan')
+                       and modal_len_ndc <= JITTER_LIKE_MAX_NDC)
     direction_undefined = bool(zero_field or valid_count == 0)
     histogram = [] if direction_undefined else direction_histogram(px, py)
     mean_direction_deg = None
@@ -693,6 +724,23 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
             f'({STATIC_P99_PX_HORIZONTAL:.2f} px horizontal, '
             f'{STATIC_P99_PX_VERTICAL:.2f} px vertical)')
     checks.append(static)
+    # --- 2b. static tail ---------------------------------------------------
+    if effective == 'pan':
+        checks.append(skip_check(
+            'static-tail',
+            'not applicable: a pan frame legitimately carries motion up to the '
+            'motion bound; the tail gate applies to static frames only'))
+    elif valid_count == 0:
+        checks.append(make_check('static-tail', False,
+                                 'no valid pixels, so the tail is undefined'))
+    else:
+        tail_ok = max_ndc < STATIC_TAIL_MAX_NDC
+        checks.append(make_check(
+            'static-tail', tail_ok,
+            f'max valid |motion| {max_ndc:.6f} NDC '
+            f'{"<" if tail_ok else ">="} {STATIC_TAIL_MAX_NDC} '
+            f'({STATIC_TAIL_MAX_NDC * WIDTH / 2.0:g} px horizontal); p99 alone '
+            f'hides the top 1%'))
 
     # --- 3. sign and scale against phase-correlated colour ----------------
     sign_check, sign_scale = evaluate_sign_scale(
@@ -800,7 +848,9 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
                     'coverage_of_valid': None, 'invalid_on_drawn_fraction': None,
                     'reason': reason}
     else:
-        drawn = depth != 1.0
+        # Sky is depth == 1.0 up to float rounding; an exact comparison turns a
+        # 0.999999 sky into "drawn" and silently defeats the sky policy.
+        drawn = depth < 1.0 - 1e-4
         sky = ~drawn
         valid_on_drawn = valid & drawn
         valid_over_sky = valid & sky
@@ -812,6 +862,16 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
         invalid_on_drawn_count = int(invalid_on_drawn.sum())
         coverage_of_drawn = (valid_on_drawn_count / drawn_count) if drawn_count else 0.0
         coverage_of_valid = (valid_on_drawn_count / valid_count) if valid_count else 0.0
+        drawn_median_px = None
+        sky_median_px = None
+        if valid_on_drawn_count:
+            drawn_median_px = [
+                float(np.median(x[valid_on_drawn]) * WIDTH / 2.0),
+                float(np.median(y[valid_on_drawn]) * HEIGHT / 2.0)]
+        if valid_over_sky_count:
+            sky_median_px = [
+                float(np.median(x[valid_over_sky]) * WIDTH / 2.0),
+                float(np.median(y[valid_over_sky]) * HEIGHT / 2.0)]
         if drawn_count == 0:
             ok = False
             reason = 'depth has no drawn pixels (all 1.0); cannot cross-check'
@@ -838,10 +898,85 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
             'invalid_over_sky': int((~valid & sky).sum()),
             'coverage_of_drawn': round(coverage_of_drawn, 6),
             'coverage_of_valid': round(coverage_of_valid, 6),
+            'drawn_median_px': None if drawn_median_px is None
+                               else [round(v, 4) for v in drawn_median_px],
+            'sky_median_px': None if sky_median_px is None
+                             else [round(v, 4) for v in sky_median_px],
             'invalid_on_drawn_fraction': round(invalid_on_drawn_count / drawn_count, 6)
                                           if drawn_count else 0.0,
             'reason': reason,
         }
+
+    # --- 6b. sky content --------------------------------------------------
+    # A count of valid sky pixels says nothing about their value. On a pan, the
+    # sky is either static (translation) or moves with the scene (rotation);
+    # a sky that is neither is garbage. The mode is explicit so a rotation
+    # window cannot be accepted with a zero sky by accident.
+    sky_info = {'status': 'skip', 'mode': sky_mode, 'sky_fraction': None,
+                'sky_median_px': None, 'drawn_median_px': None,
+                'rotation_error_px': None, 'translation_magnitude_px': None,
+                'tolerance_px': None}
+    if depth is None:
+        sky_check = skip_check('sky', 'no --depth supplied; sky content not checked')
+    else:
+        sky_fraction = (coverage['sky_pixels'] / total) if coverage['sky_pixels'] else 0.0
+        drawn_median = coverage['drawn_median_px']
+        sky_median = coverage['sky_median_px']
+        sky_info.update({'sky_fraction': round(sky_fraction, 6),
+                         'sky_median_px': sky_median,
+                         'drawn_median_px': drawn_median})
+        if sky_fraction < MIN_SKY_FRACTION:
+            sky_check = skip_check(
+                'sky', f'sky is {sky_fraction:.2%} of the frame < '
+                       f'{MIN_SKY_FRACTION:.0%}; nothing to compare')
+        elif coverage['valid_over_sky'] == 0:
+            # The sky is a real part of the field: a scene with sky and no valid
+            # sky pixel means the skybox (or the pass carrying it) was not
+            # written. That is true on static frames too, so it fails here rather
+            # than being hidden by the pan comparison below.
+            sky_check = make_check(
+                'sky', False,
+                f'sky is {sky_fraction:.2%} of the frame but no sky pixel is '
+                f'valid; the skybox did not write the guide')
+        elif drawn_median is None:
+            sky_check = skip_check(
+                'sky', 'drawn geometry has no valid motion to compare with the sky')
+        elif effective != 'pan':
+            sky_check = skip_check(
+                'sky', f'sky is {sky_fraction:.2%} of the frame and valid; a '
+                       f'static frame has no sky motion to compare')
+        else:
+            dvec = np.array(drawn_median, dtype=np.float64)
+            svec = np.array(sky_median, dtype=np.float64)
+            drawn_len = float(np.hypot(*dvec))
+            sky_len = float(np.hypot(*svec))
+            rot_err = float(np.hypot(*(svec - dvec)))
+            tol = max(SKY_MATCH_MIN_PX, SKY_MATCH_RATIO * drawn_len)
+            rotation = bool(rot_err <= tol)
+            translation = bool(sky_len <= tol)
+            if sky_mode == 'rotation':
+                ok = rotation
+            elif sky_mode == 'translation':
+                ok = translation
+            else:
+                ok = rotation or translation
+            sky_info.update({
+                'status': 'pass' if ok else 'fail',
+                'rotation_error_px': round(rot_err, 4),
+                'translation_magnitude_px': round(sky_len, 4),
+                'tolerance_px': round(tol, 4),
+            })
+            mode_text = (f'mode {sky_mode}: rotation error {rot_err:.3f} px, '
+                         f'sky magnitude {sky_len:.3f} px, tolerance {tol:.3f} px')
+            sky_check = make_check(
+                'sky', ok,
+                f'sky {sky_fraction:.2%} of frame, median '
+                f'({sky_median[0]:+.3f}, {sky_median[1]:+.3f}) px vs drawn '
+                f'({drawn_median[0]:+.3f}, {drawn_median[1]:+.3f}) px; '
+                f'{mode_text}' + ('' if ok else
+                                  '; the sky is neither static (translation) nor '
+                                  'moving with the scene (rotation)'))
+    checks.append(sky_check)
 
     # --- 7. validity coverage ---------------------------------------------
     in_band = VALIDITY_BAND[0] <= valid_fraction <= VALIDITY_BAND[1]
@@ -884,11 +1019,14 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
 
     return {'stats': stats, 'checks': checks, 'local_motion': local,
             'coherence': coherence, 'coverage': coverage,
+            'sky': sky_info,
             'sign_scale': sign_scale,
             'pass': all(check['ok'] for check in checks)}
 
 
-def print_report(path, results, failures, findings, warnings, min_frames):
+def print_report(path, results, failures, findings, warnings, min_frames,
+                 strict=False, require_motion=False, sky_mode='either',
+                 window_motion=None):
     print(f'Motion guide analysis: {path}')
     print('Conventions: x,y = current - previous in clip-space NDC, jitter removed; '
           'z reserved 0; w 1 = valid, 0 = no history; 1000x600 RGBA16F, '
@@ -899,10 +1037,15 @@ def print_report(path, results, failures, findings, warnings, min_frames):
           f'top-decile direction <= {COHERENCE_ANGLE_TOL_DEG:g} deg; local >= '
           f'{MIN_MOVING_FRACTION:.0%} of valid > {LOCAL_DEVIATION_NDC} NDC; '
           f'coverage >= {COVERAGE_MIN:.0%} of drawn (valid sky allowed); '
+          f'static frames also require max < {STATIC_TAIL_MAX_NDC:g} NDC; '
           f'valid in {list(VALIDITY_BAND)}; sign gate: colour shift >= '
           f'{SIGN_GATE_MIN_SHIFT_PX} px and per-axis |error| <= max('
           f'{SIGN_GATE_TOL_MIN_PX:g} px, {SIGN_GATE_TOL_FRACTION:.0%} of the '
-          f'shift), same sign on both axes.')
+          f'shift), radial <= {SIGN_GATE_RADIAL_TOL_SCALE:g}x that, same sign on '
+          f'both axes.')
+    print(f'Gate: strict={strict} sky_mode={sky_mode} require_motion={require_motion}'
+          + (f" sign_pass_frames={window_motion['frames_with_sign_pass']}"
+             f"/{window_motion['frames']}" if window_motion else ''))
     print('Note: coherence is a smoke test, not a sign test; the sign/scale check '
           'is the sign test (phase-correlated colour). Direction statistics use '
           'pixel space (x*W/2, y*H/2).')
@@ -982,6 +1125,20 @@ def main(argv=None):
                              'sign/scale gate')
     parser.add_argument('--require-local-motion', action='store_true',
                         help='turn an absent local_motion finding into a failed check')
+    parser.add_argument('--strict', action='store_true',
+                        help='fail when a check required by the frame intent is SKIPPED: '
+                             'static frames require static-p99 and static-tail; pan frames '
+                             'require sign-scale and coherence; every frame requires '
+                             'size, finite, motion-bound, validity-binary, validity, '
+                             'channel-sanity, coverage and sky (when depth is supplied)')
+    parser.add_argument('--require-motion', action='store_true',
+                        help='window gate: at least one frame must PASS sign-scale, so a '
+                             'static-only window cannot be recorded as motion evidence')
+    parser.add_argument('--sky-mode', choices=('either', 'rotation', 'translation'),
+                        default='either',
+                        help='what the sky is expected to do on a pan frame: follow the '
+                             'scene (rotation), stay still (translation), or accept '
+                             'either (default)')
     parser.add_argument('--min-frames', type=int, default=1,
                         help='fail if fewer frames were analysed (acceptance gate uses 8)')
     parser.add_argument('--json', action='store_true', help='machine-readable result object')
@@ -1101,7 +1258,8 @@ def main(argv=None):
             warnings.append(f"frame {item['label']}: {note}")
         result = evaluate(item['motion'], depth=depth, expect=args.expect,
                           require_local_motion=args.require_local_motion,
-                          coverage_note=note, colour=item['colour'])
+                          coverage_note=note, colour=item['colour'],
+                          sky_mode=args.sky_mode)
         result['coverage']['depth_file'] = item['depth'].get('file')
         result.update({'file': item['path'].name, 'frame': item['frame'],
                        'label': item['label'], 'path': str(item['path']),
@@ -1138,6 +1296,53 @@ def main(argv=None):
                 failures.append(f"{check['id']} (frame {result['label']}): "
                                 f"{check['reason']}")
 
+    # Strict mode: a SKIP is not evidence. The required set depends on what the
+    # frame claims to be: a pan must prove sign and coherence, a static frame
+    # must prove p99 and the tail, and every frame must prove its contract and
+    # coverage. The check is on the recorded status, so a required check that
+    # skipped fails even though skip_check stores ok=True.
+    skipped_checks = []
+    for result in results:
+        for check in result['checks']:
+            if check['status'] == 'skip':
+                skipped_checks.append(f"{check['id']} (frame {result['label']})")
+    required_checks = {
+        'size', 'finite', 'motion-bound', 'validity-binary', 'validity',
+        'channel-sanity', 'coverage',
+    }
+    strict_failures = []
+    if args.strict:
+        for result in results:
+            effective = result['stats'].get('expect_effective')
+            required = set(required_checks)
+            if effective == 'pan':
+                required.update({'sign-scale', 'coherence'})
+            else:
+                required.update({'static-p99', 'static-tail'})
+            by_id = {check['id']: check for check in result['checks']}
+            for check_id in sorted(required):
+                check = by_id.get(check_id)
+                if check is None:
+                    strict_failures.append(
+                        f"strict: required check '{check_id}' missing "
+                        f"(frame {result['label']})")
+                elif check['status'] != 'pass':
+                    strict_failures.append(
+                        f"strict: required check '{check_id}' {check['status']} "
+                        f"(frame {result['label']}): {check['reason']}")
+        failures.extend(strict_failures)
+
+    window_motion = {
+        'required': bool(args.require_motion),
+        'frames_with_sign_pass': sum(
+            1 for result in results if result['sign_scale']['status'] == 'pass'),
+        'frames': len(results),
+    }
+    if args.require_motion and window_motion['frames_with_sign_pass'] == 0:
+        failures.append(
+            'window-motion: no frame PASSed sign-scale; a static-only window is '
+            'not evidence that the guide carries motion')
+
     payload = {
         'tool': 'motion_guide_analyze',
         'conventions': conventions(),
@@ -1145,18 +1350,27 @@ def main(argv=None):
         'depth_dir': str(args.depth) if args.depth is not None else None,
         'colour_dir': str(args.colour) if args.colour is not None else None,
         'expect': args.expect,
+        'sky_mode': args.sky_mode,
+        'strict': bool(args.strict),
+        'require_motion': bool(args.require_motion),
+        'required_checks': sorted(required_checks) if args.strict else [],
+        'skipped_checks': skipped_checks,
+        'window_motion': window_motion,
         'frames_analysed': len(results),
         'frames': results,
         'findings': findings,
         'warnings': warnings,
         'failed_checks': failures,
         'result': 'FAIL' if failures else 'PASS',
+        'accepted': not failures,
         'error': None,
     }
     if args.json:
         print(json.dumps(payload, indent=2))
     elif not args.quiet:
-        print_report(args.path, results, failures, findings, warnings, args.min_frames)
+        print_report(args.path, results, failures, findings, warnings, args.min_frames,
+                     strict=args.strict, require_motion=args.require_motion,
+                     sky_mode=args.sky_mode, window_motion=window_motion)
     return 0 if not failures else 1
 
 

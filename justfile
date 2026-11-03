@@ -159,6 +159,11 @@ test-debug: build-debug
 test-release: build-release
     ctest --test-dir out/build/{{ triple }}-release --output-on-failure
 
+# The Python gate is registered with ctest when numpy is available; this runs it
+# directly for a quick check without a build.
+test-analysis:
+    python3 tests/motion_guide_analysis_test.py
+
 # --- Housekeeping --------------------------------------------------------------
 
 # Delete a preset's entire build output (forces a full reconfigure + rebuild next time you build).
