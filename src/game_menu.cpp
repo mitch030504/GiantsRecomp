@@ -123,21 +123,25 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
     }
     rex::cvar::SetFlagByName(capture_, name);
     REXLOG_INFO("Rebound {} to {}", capture_, name);
-    capture_.clear();
     StopCapture();
     e.set_handled(true);
   }
 
  private:
   void StartCapture(const std::string& cvar) {
+    // A second "Rebind" while one is pending must not register the listener twice;
+    // RemoveInputListener would then leave one registration behind.
+    StopCapture();
     capture_ = cvar;
     if (window_) window_->AddInputListener(this, 1000);
   }
 
   void StopCapture() {
-    if (capture_.empty()) return;
-    capture_.clear();
+    // Remove first, unconditionally: owners clear capture_ before calling this on
+    // success and on cancel, and an early return here used to leave the listener in
+    // the window's multimap after the dialog had been destroyed.
     if (window_) window_->RemoveInputListener(this);
+    capture_.clear();
   }
 
   // Sets restart-only cvars, saves the config and relaunches the process (same flow as the
@@ -248,7 +252,7 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
         ImGui::TableSetColumnIndex(2);
         ImGui::PushID(entry.name.c_str());
         if (capture_ == entry.name) {
-          if (ImGui::Button("Cancel")) { capture_.clear(); StopCapture(); }
+          if (ImGui::Button("Cancel")) { StopCapture(); }
         } else if (ImGui::Button("Rebind")) {
           StartCapture(entry.name);
         }
