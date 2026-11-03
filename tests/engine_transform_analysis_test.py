@@ -17,9 +17,13 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
-def row(frame, instance, matrix, fresh=1, age=0, aligned='true', hash_value='0'):
+def row(frame, instance, matrix, fresh=1, age=0, aligned='true', hash_value='0', part=0,
+        part_index=0, marker_id=None):
     body = ''.join(f' m{i // 4}{i % 4}={value:.9g}' for i, value in enumerate(matrix))
-    return (f'engine_trace transform frame={frame} instance={instance} part=0 '
+    identity = f'part={part}'
+    if marker_id is not None:
+        identity += f' part_index={part_index} marker_id={marker_id:08X}'
+    return (f'engine_trace transform frame={frame} instance={instance} {identity} '
             f'node=AA00000{instance} device=826F4A1C attribute=BB00000{instance} depth=3 '
             f'fresh={fresh} age={age} aligned={aligned} matrix_hash={hash_value}{body}')
 
@@ -36,8 +40,9 @@ def translated(t):
 
 
 def run(lines):
-    frames, duplicates, unmatched, capped, nonfinite, stale = module.parse_rows('\n'.join(lines))
-    return module.analyse(frames, duplicates, unmatched, capped, nonfinite, stale)
+    frames, duplicates, unmatched, capped, nonfinite, stale, part_split = module.parse_rows(
+        '\n'.join(lines))
+    return module.analyse(frames, duplicates, unmatched, capped, nonfinite, stale, part_split)
 
 
 # A static instance keeps its world matrix even though the camera is moving: world
@@ -73,6 +78,20 @@ assert rot['max_relative_step'] == 0.0, rot
 dup = run([row(10, 4, IDENTITY), row(10, 4, translated(5.0)), row(11, 4, IDENTITY)])
 assert dup['instances'] == 1 and dup['duplicate_applications'] == 1, dup
 assert dup['max_relative_step'] == 0.0, dup
+
+# Identity fields are optional on read: new rows expose the real part and the draw's
+# marker id, rows from before the change still parse with neither invented.
+new = module.parse_rows(row(10, 9, IDENTITY, part=41, part_index=3, marker_id=0x1F))[0][10][9]
+assert (new['part'], new['part_index'], new['marker_id']) == (41, 3, '0000001F'), new
+old = module.parse_rows(row(10, 9, IDENTITY))[0][10][9]
+assert (old['part'], old['part_index'], old['marker_id']) == (0, None, None), old
+
+# Two different parts of one instance in one frame are not a duplicate application;
+# they are the collision the part field exists to expose.
+part_split = module.parse_rows('\n'.join([row(10, 4, IDENTITY, part=1, marker_id=1),
+                                          row(10, 4, translated(5.0), part=2,
+                                              marker_id=2)]))[6]
+assert part_split == 1, part_split
 
 # If the applied transform carried camera motion, every instance would share one
 # relative matrix; that must be reported rather than read as object motion.

@@ -595,15 +595,24 @@ inline bool TransformRowAttributed(Reason reason, uint64_t instance) {
 // the last column is (0,0,0,1); `{:.9g}` is FLT_DECIMAL_DIG, so every element
 // round-trips. Without a captured matrix the row stops before `aligned`/matrix
 // so no zero transform can be read as one.
-inline void FormatTransformRow(fmt::memory_buffer& row, uint64_t frame, const Occurrence& owner,
-                               uint32_t device, const TransformSnapshot& transform) {
+//
+// Identity fields: `instance` is the cross-frame path ordinal and `part` the part
+// within it, so motion is keyed on `(instance, part)`. `marker_id` is the same
+// per-frame ordinal the draw's kInstance marker carries, which is what joins this
+// row to its draw row on `(frame, marker_id)`. `part_index` is chunk-relative (0
+// for the first record of a submission) and is reported for diagnosis only, never
+// as a per-instance part index.
+inline void FormatTransformRow(fmt::memory_buffer& row, uint64_t frame, uint32_t marker_id,
+                               const Occurrence& owner, uint32_t device,
+                               const TransformSnapshot& transform) {
   row.clear();
   const auto node = owner.path.empty() ? 0u : owner.path.back().address;
   fmt::format_to(std::back_inserter(row),
-                 "engine_trace transform frame={} instance={} part=0 node={:08X} device={:08X} "
+                 "engine_trace transform frame={} instance={} part={} part_index={} "
+                 "marker_id={:08X} node={:08X} device={:08X} "
                  "attribute={:08X} depth={} fresh={} age=",
-                 frame, owner.instance, node, device, transform.attribute, owner.path.size(),
-                 transform.fresh ? 1 : 0);
+                 frame, owner.instance, owner.part, owner.part_index, marker_id, node, device,
+                 transform.attribute, owner.path.size(), transform.fresh ? 1 : 0);
   if (!transform.applied) {
     fmt::format_to(std::back_inserter(row), "-");
     return;

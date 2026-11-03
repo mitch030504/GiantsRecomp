@@ -329,9 +329,11 @@ REX_HOOK_RAW(sub_8232E5E0) {
                       "frame have no transform row", frame, transform_budget.Limit());
       } else {
         // One buffer, one allocation: sixteen fmt::format calls used to allocate
-        // sixteen times per row.
+        // sixteen times per row. `marker_id` is the id this draw's instance marker
+        // just used, so the row can be joined to that marker on (frame, marker_id).
         fmt::memory_buffer row;
-        FormatTransformRow(row, frame, owner, CurrentDevice(base), transform_capture.Snapshot(frame));
+        FormatTransformRow(row, frame, marker_id, owner, CurrentDevice(base),
+                           transform_capture.Snapshot(frame));
         REXLOG_INFO("{}", std::string_view(row.data(), row.size()));
       }
     }

@@ -15,6 +15,11 @@ World transforms are camera-independent: a static object keeps the same matrix
 however the camera moves, so `relative = inv(W_t-1) * W_t` isolates object motion
 from camera motion.
 
+Rows now carry the real `part`, a chunk-relative `part_index` and the draw's
+`marker_id`; the latter two are optional on read, so logs from before that change
+still parse. Motion is still keyed by instance here - the `(instance, part)` key and
+the `(frame, marker_id)` draw join are the next step, not something this tool claims.
+
 This tool measures; it does not decide that motion is correct.
 """
 import argparse
@@ -25,9 +30,16 @@ import re
 from pathlib import Path
 import sys
 
-ROW = re.compile(r'engine_trace transform frame=(\d+) instance=(\d+) part=(\d+) '
-                 r'node=([0-9A-F]+) device=([0-9A-F]+) attribute=([0-9A-F]+) '
-                 r'depth=(\d+) fresh=(\d) age=(-|\d+)(?: aligned=(\w+) matrix_hash=([0-9A-F]+))?')
+# `part_index` and `marker_id` were added with the real `part`; both are optional so
+# logs written before that change still parse, and stay None rather than 0.
+ROW = re.compile(r'engine_trace transform frame=(?P<frame>\d+) instance=(?P<instance>\d+) '
+                 r'part=(?P<part>\d+) '
+                 r'(?:part_index=(?P<part_index>\d+) )?'
+                 r'(?:marker_id=(?P<marker_id>[0-9A-F]+) )?'
+                 r'node=(?P<node>[0-9A-F]+) device=(?P<device>[0-9A-F]+) '
+                 r'attribute=(?P<attribute>[0-9A-F]+) '
+                 r'depth=(?P<depth>\d+) fresh=(?P<fresh>\d) age=(?P<age>-|\d+)'
+                 r'(?: aligned=(?P<aligned>\w+) matrix_hash=(?P<matrix_hash>[0-9A-F]+))?')
 # `age=-` means no state-1 apply on this thread: the row carries no matrix by design.
 # Accept nan/inf spellings so a non-finite guest matrix is detected rather than
 # silently defaulting to 0.0 and fabricating motion.
@@ -41,15 +53,22 @@ def truth(value):
 
 
 def parse_rows(log):
-    """Return ({frame: {instance: row}}, duplicates, unmatched, capped, nonfinite).
+    """Return ({frame: {instance: row}}, duplicates, unmatched, capped, nonfinite,
+    stale, part_split).
 
     An instance can legitimately apply several attributes in a frame; the state-1
     world transform belongs to the node, so the first row for (frame, instance) is
     canonical and later duplicates are counted rather than averaged.
+
+    A row is keyed by instance because that is what motion has always been measured
+    on. When the same instance applies different `part` values in one frame those
+    rows are not duplicate applications - identity is `(instance, part)` - so they
+    are counted separately instead of inflating the duplicate count. Keying the
+    motion tables by part is the next step, not this parser's job.
     """
     frames = defaultdict(dict)
     duplicates = Counter()
-    unmatched = capped = nonfinite = stale = 0
+    unmatched = capped = nonfinite = stale = part_split = 0
     for line in log.splitlines():
         if 'engine_trace transform_unmatched' in line:
             unmatched += 1
@@ -65,9 +84,10 @@ def parse_rows(log):
         match = ROW.search(line)
         if not match:
             continue
-        frame, instance = int(match.group(1)), int(match.group(2))
-        age_raw = match.group(9)
-        if age_raw == '-' or not match.group(11):
+        frame, instance = int(match.group('frame')), int(match.group('instance'))
+        part = int(match.group('part'))
+        age_raw = match.group('age')
+        if age_raw == '-' or not match.group('matrix_hash'):
             # No matrix was applied on this thread; never fabricate one.
             stale += 1
             continue
@@ -83,15 +103,24 @@ def parse_rows(log):
         if not finite:
             nonfinite += 1
             continue
-        row = {'instance': instance, 'node': match.group(4), 'attribute': match.group(6),
-               'fresh': truth(match.group(8)), 'age': int(age_raw),
-               'aligned': truth(match.group(10)), 'matrix_hash': match.group(11),
+        # part_index and marker_id are absent from logs written before the identity
+        # change and stay None instead of being invented as 0.
+        row = {'instance': instance, 'part': part,
+               'part_index': int(match.group('part_index')) if match.group('part_index') else None,
+               'marker_id': match.group('marker_id'),
+               'node': match.group('node'), 'attribute': match.group('attribute'),
+               'fresh': truth(match.group('fresh')), 'age': int(age_raw),
+               'aligned': truth(match.group('aligned')),
+               'matrix_hash': match.group('matrix_hash'),
                'matrix': words}
         if instance in frames[frame]:
-            duplicates[(frame, instance)] += 1
+            if frames[frame][instance]['part'] == part:
+                duplicates[(frame, instance)] += 1
+            else:
+                part_split += 1
             continue
         frames[frame][instance] = row
-    return frames, duplicates, unmatched, capped, nonfinite, stale
+    return frames, duplicates, unmatched, capped, nonfinite, stale, part_split
 
 
 def invert_affine_row_matrix(m):
@@ -141,7 +170,7 @@ def translation_of(m):
     return (m[12], m[13], m[14])
 
 
-def analyse(frames, duplicates, unmatched, capped, nonfinite=0, stale=0):
+def analyse(frames, duplicates, unmatched, capped, nonfinite=0, stale=0, part_split=0):
     ordered = sorted(frames)
     changed, seen, translation, step = Counter(), Counter(), {}, {}
     pairs = []
@@ -187,6 +216,9 @@ def analyse(frames, duplicates, unmatched, capped, nonfinite=0, stale=0):
         'capped_frames': capped,
         'nonfinite_rows': nonfinite,
         'no_matrix_rows': stale,
+        # Rows the instance key had to drop because the same instance applied a
+        # different part in the same frame; identity for those is (instance, part).
+        'part_split_rows': part_split,
         'fresh_rows': sum(1 for f in frames.values() for r in f.values() if r['fresh']),
         'carried_rows': sum(1 for f in frames.values() for r in f.values() if not r['fresh']),
         'max_age': max((r['age'] for f in frames.values() for r in f.values()), default=0),
@@ -214,7 +246,8 @@ def main(argv=None):
     parser.add_argument('--start', type=int, help='Require this first guest frame')
     parser.add_argument('--frames', type=int, default=1)  # same bound as the trace
     args = parser.parse_args(argv)
-    frames, duplicates, unmatched, capped, nonfinite, stale = parse_rows(args.log.read_text())
+    frames, duplicates, unmatched, capped, nonfinite, stale, part_split = parse_rows(
+        args.log.read_text())
     if not frames:
         detail = ('rows present but every matrix was non-finite' if nonfinite
                   else 'no transform rows; is nr_engine_trace_transforms enabled '
@@ -226,7 +259,7 @@ def main(argv=None):
         missing = want - set(frames)
         if missing:
             print(f'warning: missing requested frames {sorted(missing)}', file=sys.stderr)
-    result = analyse(frames, duplicates, unmatched, capped, nonfinite, stale)
+    result = analyse(frames, duplicates, unmatched, capped, nonfinite, stale, part_split)
     print(json.dumps(result, indent=2))
     # Non-zero only when the capture is unsound, not when motion is absent.
     return 1 if unmatched else 0

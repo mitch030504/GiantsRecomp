@@ -584,6 +584,8 @@ int main() {
   // Row format: the drawing instance, the drawing node, and an honest age/fresh.
   Occurrence drawn;
   drawn.instance = 4242;
+  drawn.part = 40;
+  drawn.part_index = 3;
   drawn.path.push_back({0x1000, 1});
   drawn.path.push_back({0x2000, 2});
   std::vector<uint8_t> row_fixture(4096, 0);
@@ -596,9 +598,13 @@ int main() {
   TransformCapture row_capture;
   CHECK(row_capture.Apply(kWorldTransformState, identity, 0x2000, 12));
   fmt::memory_buffer row;
-  FormatTransformRow(row, 12, drawn, 0xABC00000, row_capture.Snapshot(12));
+  FormatTransformRow(row, 12, 7, drawn, 0xABC00000, row_capture.Snapshot(12));
   const std::string text(row.data(), row.size());
-  CHECK(text.starts_with("engine_trace transform frame=12 instance=4242 part=0 node=00002000 "));
+  // The real part and the draw's marker id are what the join needs: (frame,
+  // marker_id) links this row to its draw row, (instance, part) keys motion. The
+  // literal part=0 this row used to print collapsed 71 of 297 instances.
+  CHECK(text.starts_with("engine_trace transform frame=12 instance=4242 part=40 part_index=3 "
+                         "marker_id=00000007 node=00002000 "));
   CHECK(text.find(" device=ABC00000 attribute=00002000 depth=2 fresh=1 age=0 aligned=true "
                   "matrix_hash=") != std::string::npos);
   CHECK(text.find(fmt::format("{:016X}", MatrixHash(identity.matrix))) != std::string::npos);
@@ -609,7 +615,7 @@ int main() {
 
   // A carry-over row reports age, not freshness, and keeps the same numbers.
   row_capture.Advance();
-  FormatTransformRow(row, 12, drawn, 0xABC00000, row_capture.Snapshot(12));
+  FormatTransformRow(row, 12, 7, drawn, 0xABC00000, row_capture.Snapshot(12));
   const std::string world_carried_text(row.data(), row.size());
   CHECK(world_carried_text.find("fresh=0 age=1 aligned=true") != std::string::npos);
   CHECK(world_carried_text.find("attribute=00002000") != std::string::npos);
@@ -619,7 +625,7 @@ int main() {
   // No state-1 apply at all: fresh=0 and age unset, with no matrix tail, so a
   // reader cannot mistake zeros for a transform.
   TransformCapture never;
-  FormatTransformRow(row, 12, drawn, 0xABC00000, never.Snapshot(12));
+  FormatTransformRow(row, 12, 7, drawn, 0xABC00000, never.Snapshot(12));
   const std::string never_text(row.data(), row.size());
   CHECK(never_text.find("fresh=0 age=-") != std::string::npos);
   CHECK(never_text.find("matrix_hash=") == std::string::npos);
@@ -630,7 +636,7 @@ int main() {
   CHECK(never_text.find("node=00002000 device=ABC00000 attribute=00000000 depth=2") !=
         std::string::npos);
   // An unreadable apply resets the age but prints no matrix either.
-  FormatTransformRow(row, 12, drawn, 0xABC00000, unreadable_snapshot);
+  FormatTransformRow(row, 12, 7, drawn, 0xABC00000, unreadable_snapshot);
   const std::string unreadable_text(row.data(), row.size());
   CHECK(unreadable_text.find("fresh=0 age=0") != std::string::npos);
   CHECK(unreadable_text.find("matrix_hash=") == std::string::npos);
