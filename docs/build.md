@@ -26,6 +26,8 @@ The portal emulation (`thirdparty/skylanders-portal`) has no dependency on ReXGl
 it's covered by its own plain-`main` unit tests, built with this project (run with
 `ctest --test-dir out/build/<preset>` or `just test-debug`/`test-release`): figure encode/decode
 round-trips, the catalog scanner, the `SoftwarePortal` protocol state machine driven by scripted
-report sequences, and Xbox frame conversion. `tests/` holds this project's own tests (XEX
-verification). Anything needing a real game dump,
-a real figure, or real USB hardware is exercised by hand and is not part of the automated suite.
+report sequences, and Xbox frame conversion. `tests/` also holds this project's own tests (XEX
+verification, netplay, portal IPC, motion key) and the Python motion-guide analyzer, which is
+registered with `ctest` when numpy is available (or run directly with `just test-analysis`). Anything
+needing a real game dump, a real figure, or real USB hardware is exercised by hand and is not part of
+the automated suite.

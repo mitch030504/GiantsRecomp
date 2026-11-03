@@ -19,8 +19,9 @@ The upscaler runs at present time, on the finished guest frame:
 - **Jitter:** while it's active, `BuildPerspectiveProjectionMatrix` (`src/hooks/ultrawide_hook.cpp`)
   shifts every 3D projection by a Halton(2,3) sub-pixel offset keyed to the guest frame index
   (`rex/ui/temporal_jitter.h`), and the presenter tells FSR the same offset.
-- **Motion vectors:** estimated by block matching between this frame and the last one
-  (`temporal_motion_cs`), since the game doesn't provide any.
+- **Motion vectors:** the shipping path estimates them by block matching between this frame and the
+  last one (`temporal_motion_cs`). An experimental engine guide (`motion_guide`, development only,
+  default off) carries per-pixel motion from scene draws; it is not wired to the upscaler yet.
 - **Depth:** constant. The HUD is protected by a bias towards zero motion.
 
 The 2D UI is drawn before the upscaler sees the frame, so it gets upscaled with the scene.
@@ -91,8 +92,10 @@ cross-compiled Windows build (`tools/windows_cross.sh`).
 
 - The title screen is a soft scene. Repeat the A/B in gameplay, which has hard static edges, once
   input replay can get there.
-- Motion vectors from block matching can't separate moving objects from the background well; the
-  plan is camera and per-object motion vectors from the game (see `.ai/plans/`).
+- Motion vectors from block matching can't separate moving objects from the background well. The
+  engine guide is being built to replace them for NR (see `.ai/plans/` and
+  `.ai/conversations/sessions/2026-11-03/225000-opencode-stable-placement.md`): static and panning
+  windows now pass its gate, and it is still development-only.
 - Enable the deterministic scheduler for frame-locked benchmarks and check native repeatability
   in each scene before interpreting image-quality numbers (see the d4r results below).
 - Native NGX is only verified to fall back cleanly here (no RTX card): its jitter sign and image quality
