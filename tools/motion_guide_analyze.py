@@ -225,9 +225,10 @@ def phase_correlation_shift(previous_luma, current_luma):
     Cross-power phase correlation on zero-mean luma: FFT both frames, multiply
     the current spectrum by the conjugate of the previous one, normalise the
     magnitude, inverse FFT and take the peak. x is positive right and y is
-    positive down (row order), matching the pixel conversion of the motion
-    field. The peak wraps at half extent; the parabolic fit adds sub-pixel
-    precision. Numpy only: scipy is not a dependency of these tools.
+    positive down (image row order); the sign/scale gate converts y to the
+    motion field's Y-up NDC convention before comparing. The peak wraps at half
+    extent; the parabolic fit adds sub-pixel precision. Numpy only: scipy is not
+    a dependency of these tools.
     """
     previous = np.asarray(previous_luma, dtype=np.float64)
     current = np.asarray(current_luma, dtype=np.float64)
@@ -422,7 +423,11 @@ def evaluate_sign_scale(med_px, valid_count, colour, effective, mode_reason):
     colour = colour or {}
     shift = colour.get('shift_px')
     if shift is not None:
-        shift = [float(shift[0]), float(shift[1])]
+        # Phase correlation reports the content shift in image rows: y positive
+        # down. The motion field is guest-NDC with y positive up (the scene-UV
+        # constants invert the host Y), so convert before comparing - otherwise
+        # every pan looks like a Y sign flip.
+        shift = [float(shift[0]), -float(shift[1])]
         shift_len = float(np.hypot(*shift))
     else:
         shift_len = None

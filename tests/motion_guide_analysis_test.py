@@ -532,7 +532,7 @@ assert close(measured['shift_px'][1], 0.0, 0.2), measured
 # agree, so this is a real sign test, not the coherence smoke test.
 sign_dir = WORK / 'sign'
 sign_motion = write_motion(sign_dir / 'm10800.bin', *colour_motion(3.0, -2.0))
-write_colour_pair(sign_dir, 10799, 10800, 3.0, -2.0)
+write_colour_pair(sign_dir, 10799, 10800, 3.0, 2.0)
 result = run(sign_motion, '--colour', sign_dir)
 assert result.returncode == 0, f'a known pan must pass the sign gate:\n{result.stdout}'
 assert '[PASS] sign-scale' in result.stdout, result.stdout
@@ -556,7 +556,7 @@ assert sign['previous_file'].endswith('c10799.bin'), sign
 # generic mismatch.
 flip_dir = WORK / 'sign-yflip'
 flip_motion = write_motion(flip_dir / 'm10800.bin', *colour_motion(3.0, 2.0))
-write_colour_pair(flip_dir, 10799, 10800, 3.0, -2.0, seed=8)
+write_colour_pair(flip_dir, 10799, 10800, 3.0, 2.0, seed=8)
 result = run(flip_motion, '--colour', flip_dir)
 assert result.returncode == 1, 'a Y-flipped motion must fail the sign gate'
 assert failed_ids(result.stdout) == ['sign-scale'], failed_ids(result.stdout)
@@ -571,7 +571,7 @@ assert close(sign['error_px'][1], 4.0, 0.05), sign
 swap_sign_dir = WORK / 'sign-swap'
 swap_sign_motion = write_motion(swap_sign_dir / 'm10800.bin',
                                 *colour_motion(-2.0, 3.0))
-write_colour_pair(swap_sign_dir, 10799, 10800, 3.0, -2.0, seed=9)
+write_colour_pair(swap_sign_dir, 10799, 10800, 3.0, 2.0, seed=9)
 result = run(swap_sign_motion, '--colour', swap_sign_dir)
 assert result.returncode == 1, 'an x/y-swapped motion must fail the sign gate'
 assert failed_ids(result.stdout) == ['sign-scale'], failed_ids(result.stdout)
@@ -583,7 +583,7 @@ assert payload['frames'][0]['sign_scale']['failure_kind'] == 'axis-swap', \
 # A 2x-scaled motion field must be named as a 2x scale.
 scale_dir = WORK / 'sign-scale-2x'
 scale_motion = write_motion(scale_dir / 'm10800.bin', *colour_motion(6.0, -4.0))
-write_colour_pair(scale_dir, 10799, 10800, 3.0, -2.0, seed=10)
+write_colour_pair(scale_dir, 10799, 10800, 3.0, 2.0, seed=10)
 result = run(scale_motion, '--colour', scale_dir)
 assert result.returncode == 1, 'a 2x-scaled motion must fail the sign gate'
 assert failed_ids(result.stdout) == ['sign-scale'], failed_ids(result.stdout)
@@ -675,7 +675,7 @@ assert payload['frames'][0]['sign_scale']['status'] == 'skip', payload
 bad_previous_dir = WORK / 'sign-bad-previous'
 bad_previous_motion = write_motion(bad_previous_dir / 'm10800.bin',
                                    *colour_motion(3.0, -2.0))
-write_colour_pair(bad_previous_dir, 10799, 10800, 3.0, -2.0, seed=15)
+write_colour_pair(bad_previous_dir, 10799, 10800, 3.0, 2.0, seed=15)
 (bad_previous_dir / 'c10799.bin').write_bytes(b'\0' * 1_800_000)
 result = run(bad_previous_motion, '--colour', bad_previous_dir)
 assert result.returncode == 0, f'an invalid previous colour must not crash:\n{result.stdout}'
