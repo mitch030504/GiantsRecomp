@@ -212,3 +212,9 @@ add_test(NAME netplay_portal_control COMMAND giantsrecomp_netplay_portal_control
 add_executable(giantsrecomp_netplay_figure_sync_test tests/netplay_figure_sync_test.cpp)
 target_link_libraries(giantsrecomp_netplay_figure_sync_test PRIVATE giantsrecomp_netplay_figures)
 add_test(NAME netplay_figure_sync COMMAND giantsrecomp_netplay_figure_sync_test)
+
+# Portal IPC request framing: a timeout, an early close or an oversized line must never execute a
+# partial command. The rule lives in a header with no sockets or SDK, so the test needs neither.
+add_executable(giantsrecomp_portal_ipc_request_test tests/portal_ipc_request_test.cpp)
+target_include_directories(giantsrecomp_portal_ipc_request_test PRIVATE src)
+add_test(NAME portal_ipc_request COMMAND giantsrecomp_portal_ipc_request_test)

@@ -1,13 +1,19 @@
 #include "portal_ipc.h"
 
+#include "portal_ipc_request.h"
+
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #ifdef _WIN32
@@ -22,8 +28,10 @@ constexpr socket_t kInvalidSocket = INVALID_SOCKET;
 inline int CloseSocket(socket_t s) { return closesocket(s); }
 #else
 #include <arpa/inet.h>
+#include <cerrno>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 using socket_t = int;
 constexpr socket_t kInvalidSocket = -1;
@@ -55,12 +63,30 @@ using rex::X_RESULT;
 using skylanders::portal::FigureData;
 
 constexpr int kMaxSlots = skylanders::portal::kMaxFigures;
-constexpr size_t kMaxCommand = 4096;
+
+// One connection may live this long in total, however slowly the client dribbles bytes. Before
+// this the only bound was a 2 s receive timeout per byte, so a client sending one byte just inside
+// each timeout held the one accept loop for as long as it liked (slowloris) -- and the timeout
+// executed whatever partial line it had accumulated.
+constexpr auto kConnectionDeadline = std::chrono::seconds(10);
+// An idle connection wakes up this often so the absolute deadline above is re-checked even when
+// every byte arrives just inside the receive timeout.
+constexpr auto kRecvPoll = std::chrono::milliseconds(250);
+static_assert(kRecvPoll < kConnectionDeadline,
+              "the receive poll must fire before the connection deadline");
 
 std::atomic<bool> g_hushed{false};
 std::function<bool()> g_hush_gate = [] { return true; };
 
-// One command per connection: read a line (until \n, \r or EOF, max 4096 bytes), reply, close.
+// One server thread, so plain bools are enough. A broken or hostile client must cost one
+// connection, not the log: each failure below is reported once and then stays quiet.
+bool g_warned_incomplete = false;
+bool g_warned_send = false;
+bool g_warned_accept = false;
+bool g_warned_failure = false;
+
+// One command per connection: read one terminated line (until \n or \r, max 4096 bytes), reply,
+// close. A line that never terminates inside the connection deadline is refused, never executed.
 // The reply's last line starts with "ok" or "error", matching Cemu's SkylanderPortalIPC.
 std::string ProcessCommand(const std::string& line) {
   const auto first_space = line.find(' ');
@@ -176,6 +202,9 @@ std::string ProcessCommand(const std::string& line) {
     std::error_code ec;
     if (fs::exists(path, ec)) return "error file exists\n";
     const FigureData data = skylanders::portal::CreateBlankFigure(uint16_t(id), uint16_t(variant));
+    // Known follow-up, not fixed here: SaveFigureFileAtomic writes "<path>.tmp" by name, so a
+    // symlink planted at that path is followed rather than replaced. This is the only create path
+    // reachable over IPC; the fix belongs in the portal's file helpers, not in this server.
     if (!skylanders::portal::SaveFigureFileAtomic(path, data)) return "error cannot create file\n";
     return "ok\n";
   }
@@ -188,15 +217,110 @@ std::string ProcessCommand(const std::string& line) {
   return "error unknown command\n";
 }
 
-std::string ReadLine(socket_t conn) {
-  std::string line;
+// The receive timeout is a poll period, not the request budget: the absolute deadline in
+// ReadRequest() ends a connection, so a slow client cannot buy more time with every byte.
+void ConfigureConnection(socket_t conn) {
+#ifdef _WIN32
+  DWORD timeout = static_cast<DWORD>(kRecvPoll.count());
+  setsockopt(conn, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+#else
+  timeval timeout{0, static_cast<suseconds_t>(kRecvPoll.count() * 1000)};
+  setsockopt(conn, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+#endif
+}
+
+// Reads at most one request line and never past `deadline`. A timeout, an early close or an
+// oversized line leaves the status short of kComplete, and HandleConnection() then refuses to run
+// whatever was assembled: the old reader returned the partial line and it was executed.
+RequestLine ReadRequest(socket_t conn, std::chrono::steady_clock::time_point deadline) {
+  RequestLine request;
   char byte = 0;
-  while (line.size() < kMaxCommand) {
-    const int received = recv(conn, &byte, 1, 0);
-    if (received <= 0 || byte == '\n' || byte == '\r') break;
-    line += byte;
+  for (;;) {
+    if (std::chrono::steady_clock::now() >= deadline) return request;
+    const auto received = recv(conn, &byte, 1, 0);
+    if (received == 0) return request;  // the client closed before ending its line
+    if (received < 0) {
+#ifdef _WIN32
+      const int error = WSAGetLastError();
+      if (error == WSAEINTR) continue;                                 // a signal is not a request
+      if (error == WSAETIMEDOUT || error == WSAEWOULDBLOCK) continue;  // poll; the deadline decides
+      return request;
+#else
+      if (errno == EINTR) continue;                           // a signal is not a request
+      if (errno == EAGAIN || errno == EWOULDBLOCK) continue;  // poll; the deadline decides
+      return request;
+#endif
+    }
+    if (request.Feed(byte) != RequestLine::Status::kWaiting) return request;
   }
-  return line;
+}
+
+// Writes the whole reply. The send() result used to be discarded, so a short write silently
+// truncated the answer -- send() is allowed to accept only part of a buffer -- and the client
+// treated the partial answer as complete. A hard error means the peer is gone, so the caller
+// just closes.
+bool SendAll(socket_t conn, std::string_view reply) {
+  std::size_t sent = 0;
+  while (sent < reply.size()) {
+    const std::size_t remaining = reply.size() - sent;
+#ifdef _WIN32
+    // Winsock takes an int length; replies are small, but clamp instead of narrowing a size_t.
+    const int chunk =
+        static_cast<int>(std::min(remaining, std::size_t(std::numeric_limits<int>::max())));
+    const auto written = send(conn, reply.data() + sent, chunk, 0);
+    if (written == SOCKET_ERROR) {
+      if (WSAGetLastError() == WSAEINTR) continue;
+      return false;
+    }
+#else
+#if defined(MSG_NOSIGNAL)
+    // Without MSG_NOSIGNAL a peer that reset the connection makes send() raise SIGPIPE, whose
+    // default action kills the whole process; with it the same case is the EPIPE below.
+    const auto written = send(conn, reply.data() + sent, remaining, MSG_NOSIGNAL);
+#else
+    const auto written = send(conn, reply.data() + sent, remaining, 0);  // Start() ignores SIGPIPE
+#endif
+    if (written < 0) {
+      if (errno == EINTR) continue;
+      return false;
+    }
+#endif
+    if (written == 0) return false;  // the peer stopped taking bytes
+    sent += static_cast<std::size_t>(written);
+  }
+  return true;
+}
+
+void HandleConnection(socket_t conn) {
+  // Never throws: this runs on a detached thread, where an escaping exception (only an allocation
+  // failure is realistic here) would terminate the game. A failed request costs one connection.
+  try {
+    const auto deadline = std::chrono::steady_clock::now() + kConnectionDeadline;
+    const RequestLine request = ReadRequest(conn, deadline);
+    std::string reply;
+    if (Executable(request.status())) {
+      reply = ProcessCommand(request.Text());
+    } else {
+      // Discard it. Executing what arrived is how a timeout ran a truncated command (a cut-off
+      // `create` path, or `hush of`); the client can see the refusal and resend the whole line.
+      reply = "error incomplete request\n";
+      if (!g_warned_incomplete) {
+        g_warned_incomplete = true;
+        REXLOG_WARN("Portal IPC: dropped a {} request ({} bytes) instead of running it",
+                    request.status() == RequestLine::Status::kOversized ? "oversized" : "partial",
+                    request.Text().size());
+      }
+    }
+    if (!SendAll(conn, reply) && !g_warned_send) {
+      g_warned_send = true;
+      REXLOG_WARN("Portal IPC: could not send a reply; the client had already closed");
+    }
+  } catch (...) {
+    if (!g_warned_failure) {
+      g_warned_failure = true;
+      REXLOG_WARN("Portal IPC: a request failed; dropping the connection");
+    }
+  }
 }
 
 void ServeLoop(uint16_t port) {
@@ -229,18 +353,17 @@ void ServeLoop(uint16_t port) {
   for (;;) {
     socket_t conn = accept(listener, nullptr, nullptr);
     if (conn == kInvalidSocket) {
+      // accept() fails transiently (EINTR, ECONNABORTED) or because descriptors ran out. Report it
+      // once, back off so a persistent failure cannot spin, and keep listening for other clients.
+      if (!g_warned_accept) {
+        g_warned_accept = true;
+        REXLOG_WARN("Portal IPC: accept failed; still listening on 127.0.0.1:{}", port);
+      }
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
       continue;
     }
-#ifdef _WIN32
-    DWORD timeout = 2000;
-    setsockopt(conn, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
-#else
-    timeval timeout{2, 0};
-    setsockopt(conn, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-#endif
-    const std::string reply = ProcessCommand(ReadLine(conn));
-    send(conn, reply.data(), int(reply.size()), 0);
+    ConfigureConnection(conn);
+    HandleConnection(conn);
     CloseSocket(conn);
   }
 }
@@ -252,6 +375,12 @@ void Start() {
   bool expected = false;
   if (!g_started.compare_exchange_strong(expected, true)) return;
   if (!REXCVAR_GET(portal_ipc)) return;
+#if defined(SIGPIPE)
+  // A client that resets the connection while a reply is being sent makes send() raise SIGPIPE,
+  // and its default action kills the process -- one local RST took the game down. MSG_NOSIGNAL
+  // covers the reply path itself; ignoring the signal also covers a platform without it.
+  std::signal(SIGPIPE, SIG_IGN);
+#endif
   const uint16_t port = uint16_t(REXCVAR_GET(portal_ipc_port));
   // Detached, like the portal itself: the server lives for the whole process.
   std::thread(ServeLoop, port).detach();
