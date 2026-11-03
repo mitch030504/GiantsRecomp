@@ -8,9 +8,10 @@ sign/scale gate (a known pan passes; a Y flip, an x/y swap and a 2x scale fail
 with distinct reasons; a sub-0.5 px colour shift skips rather than passes), the
 pan-coherence smoke test (an x/y swap must fail it), local motion as a finding
 rather than a hard fail, the depth coverage cross-check (valid motion over sky
-is fatal, a missing sample is not), validity coverage, the constant-jitter
-failure, exit-2 input rejection, and the --json contract. Every frame is
-synthesized here; no capture, out/tmp contents and no game data are read.
+is legitimate and reported, low drawn coverage is fatal), validity coverage, the
+constant-jitter failure, exit-2 input rejection, and the --json contract. Every
+frame is synthesized here; no capture, out/tmp contents and no game data are
+read.
 """
 import importlib.util
 import json
@@ -163,7 +164,7 @@ assert module.COHERENCE_ANGLE_TOL_DEG == 30.0, module.COHERENCE_ANGLE_TOL_DEG
 assert module.MIN_MOVING_FRACTION == 0.02, module.MIN_MOVING_FRACTION
 assert module.LOCAL_DEVIATION_NDC == 0.01, module.LOCAL_DEVIATION_NDC
 assert module.COVERAGE_MIN == 0.95, module.COVERAGE_MIN
-assert module.VALIDITY_BAND == (0.20, 0.999), module.VALIDITY_BAND
+assert module.VALIDITY_BAND == (0.20, 1.0), module.VALIDITY_BAND
 assert module.PAN_DETECT_NDC == 0.005, module.PAN_DETECT_NDC
 assert module.JITTER_LIKE_MAX_NDC == 0.002, module.JITTER_LIKE_MAX_NDC
 assert module.DIRECTION_BIN_DEG == 15.0, module.DIRECTION_BIN_DEG
@@ -315,8 +316,9 @@ assert coverage['invalid_on_drawn'] == 0, coverage
 assert coverage['coverage_of_drawn'] == 1.0, coverage
 assert coverage['depth_file'].endswith('d10800.bin'), coverage
 
-# Valid motion over depth == 1.0 is the gate's hard failure, even when the
-# drawn-pixel coverage is perfect.
+# Valid motion over depth == 1.0 is legitimate: the skybox writes the guide with
+# depth write off, so the sky carries the camera motion NR needs. It is reported
+# and does not fail coverage.
 sky_motion = WORK / 'sky-m'
 sky_depth = WORK / 'sky-d'
 valid_sky = valid.copy()
@@ -324,11 +326,10 @@ valid_sky[:6, :10] = 1.0
 sky = write_motion(sky_motion / 'm10801.bin', x, y, valid_sky)
 write_depth(sky_depth / 'd10801.bin', depth)
 result = run(sky, '--depth', sky_depth)
-assert result.returncode == 1, 'valid motion over sky must fail coverage'
-assert failed_ids(result.stdout) == ['coverage'], failed_ids(result.stdout)
+assert result.returncode == 0, f'valid motion over sky must pass coverage:\n{result.stdout}'
 payload = json.loads(run(sky, '--depth', sky_depth, '--json').stdout)
 coverage = payload['frames'][0]['coverage']
-assert coverage['status'] == 'fail', coverage
+assert coverage['status'] == 'pass', coverage
 assert coverage['valid_over_sky'] == 60, coverage
 assert coverage['coverage_of_drawn'] == 1.0, coverage
 
@@ -382,12 +383,14 @@ result = run(big)
 assert result.returncode == 1, 'a 0.6 NDC vector must fail the bound'
 assert failed_ids(result.stdout) == ['motion-bound'], failed_ids(result.stdout)
 
-# A fully valid frame means the validity gate is not wired up.
+# A fully valid static frame is accepted: every screen pixel, the sky included,
+# is covered by a keyed draw, so the validity gate works rather than being stuck
+# on. A constant zero field on a static frame is a real static scene.
 full = write_motion(WORK / 'full' / 'm40002.bin', zero, zero,
                     np.ones((HEIGHT, WIDTH), dtype=np.float32))
 result = run(full)
-assert result.returncode == 1, 'a fully valid frame must fail validity coverage'
-assert failed_ids(result.stdout) == ['validity'], failed_ids(result.stdout)
+assert result.returncode == 0, f'a fully valid static frame must pass:\n{result.stdout}'
+assert 'validity' not in failed_ids(result.stdout), failed_ids(result.stdout)
 
 # --- 9. --expect overrides the auto static/pan classification -------------
 result = run(happy, '--expect', 'static')
@@ -716,7 +719,8 @@ print('motion guide analysis: contract size/format, pinned thresholds, static p9
       '(1 px noise fails), phase-correlated sign/scale (known pan passes; Y flip, '
       'x/y swap, 2x scale fail distinctly; sub-0.5 px skips), auto follows the '
       'measured colour shift, pan coherence (x/y swap fails), local motion as a '
-      'finding, depth coverage (sky violation and low coverage fail, invalid above '
-      'scene counted), validity band, constant-jitter failure, exit-2 input '
+      'finding, depth coverage (low coverage fails, valid sky allowed and '
+      'reported, invalid above scene counted), validity band, constant-jitter '
+      'failure, exit-2 input '
       'rejection, --json contract, numeric frame order, companion prefix filtering, '
       '--min-frames, optional/validated --colour, and reserved-z warning all hold')

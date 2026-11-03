@@ -94,13 +94,15 @@ PHASE_CORR_EPS = 1e-12
 # than 0.01 NDC (5 px horizontally). Absence is a finding, not a hard failure.
 MIN_MOVING_FRACTION = 0.02
 LOCAL_DEVIATION_NDC = 0.01
-# Depth cross-check: at least 95% of drawn depth pixels must be valid motion,
-# and no valid motion may float over sky (depth == 1.0). Invalid motion over
-# drawn pixels is allowed and counted.
+# Depth cross-check: at least 95% of drawn depth pixels must be valid motion.
+# Valid motion over sky (depth == 1.0) is allowed, not a failure: the skybox
+# writes the guide with depth write off, and camera motion over the sky is
+# motion NR needs. Invalid motion over drawn pixels is allowed and counted.
 COVERAGE_MIN = 0.95
-# A gameplay frame is neither fully invalid nor fully valid: both mean the
-# validity gate is not wired up. The band is inclusive.
-VALIDITY_BAND = (0.20, 0.999)
+# A gameplay frame may be fully valid now that every keyed draw contributes and
+# non-keyed draws no longer erase the guide; the lower bound still catches a
+# gate that writes nothing. The band is inclusive.
+VALIDITY_BAND = (0.20, 1.0)
 # Channel sanity: a field that is constant at >= 99.9% of valid pixels and is
 # at most 1 px long is a jitter residual (design §3.6 measures 0.3-0.5 px), not
 # scene motion. A constant field above that is treated as a genuine uniform pan.
@@ -814,13 +816,15 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
             ok = False
             reason = 'depth has no drawn pixels (all 1.0); cannot cross-check'
         else:
-            ok = bool(coverage_of_drawn >= COVERAGE_MIN
-                      and coverage_of_valid >= COVERAGE_MIN
-                      and valid_over_sky_count == 0)
+            # Only drawn coverage gates: a field that is valid everywhere legitimately
+            # puts most of its valid pixels over the sky, which is not a defect. The
+            # fraction is still reported so a field that is all sky is visible.
+            ok = bool(coverage_of_drawn >= COVERAGE_MIN)
             reason = (f'valid&drawn {coverage_of_drawn:.2%} of drawn '
                       f'(need >= {COVERAGE_MIN:.0%}); valid&drawn '
-                      f'{coverage_of_valid:.2%} of valid; valid&sky '
-                      f'{valid_over_sky_count} px (must be 0); invalid above '
+                      f'{coverage_of_valid:.2%} of valid (reported); valid&sky '
+                      f'{valid_over_sky_count} px (allowed: the skybox writes the '
+                      f'guide with depth write off); invalid above '
                       f'scene {invalid_on_drawn_count} px '
                       f'({invalid_on_drawn_count / drawn_count:.2%} of drawn) counted')
         checks.append(make_check('coverage', ok, reason))
@@ -843,9 +847,7 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
     in_band = VALIDITY_BAND[0] <= valid_fraction <= VALIDITY_BAND[1]
     validity_reason = (f'valid fraction {valid_fraction:.6f} in '
                        f'[{VALIDITY_BAND[0]}, {VALIDITY_BAND[1]}]')
-    if valid_fraction >= 1.0:
-        validity_reason += '; fully valid means the validity gate is not working'
-    elif valid_fraction <= 0.0:
+    if valid_fraction <= 0.0:
         validity_reason += '; fully invalid means the validity gate is not working'
     checks.append(make_check('validity', in_band, validity_reason))
 
@@ -896,7 +898,7 @@ def print_report(path, results, failures, findings, warnings, min_frames):
           f'wide); coherence >= {GLOBAL_COHERENCE_RATIO:g}x direction MAD and '
           f'top-decile direction <= {COHERENCE_ANGLE_TOL_DEG:g} deg; local >= '
           f'{MIN_MOVING_FRACTION:.0%} of valid > {LOCAL_DEVIATION_NDC} NDC; '
-          f'coverage >= {COVERAGE_MIN:.0%} of drawn and valid-over-sky == 0; '
+          f'coverage >= {COVERAGE_MIN:.0%} of drawn (valid sky allowed); '
           f'valid in {list(VALIDITY_BAND)}; sign gate: colour shift >= '
           f'{SIGN_GATE_MIN_SHIFT_PX} px and per-axis |error| <= max('
           f'{SIGN_GATE_TOL_MIN_PX:g} px, {SIGN_GATE_TOL_FRACTION:.0%} of the '
