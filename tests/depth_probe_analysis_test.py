@@ -159,6 +159,10 @@ assert module.SUSPICIOUS_NEAR == 0.5, 'SUSPICIOUS_NEAR is no longer 0.5'
 assert module.PAIRS_MIN_PASS == 5, 'PAIRS_MIN_PASS is no longer 5'
 assert module.COVERAGE_BAND == (0.90, 0.999), 'COVERAGE_BAND is no longer (0.90, 0.999)'
 assert module.UNDRAWN_MAX == 0.05, 'UNDRAWN_MAX is no longer 0.05'
+# The edge floor gates which frames may score the IoU at all; without it, a frame whose
+# edge set has collapsed to a handful of pixels can pass on shape noise (the audit found
+# the top percentiles collapsing to ~1% of pixels before this floor existed).
+assert module.MIN_EDGE_PIXELS == 3000, 'MIN_EDGE_PIXELS is no longer 3000'
 assert (WIDTH, HEIGHT, module.DEPTH_BYTES) == (1000, 600, 2_400_000), \
     f'frame geometry changed: {WIDTH}x{HEIGHT}, {module.DEPTH_BYTES} B'
 assert len(module.PAIRS) == 7, f'expected seven default near/far pairs, got {len(module.PAIRS)}'
