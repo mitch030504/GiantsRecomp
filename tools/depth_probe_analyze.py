@@ -7,10 +7,14 @@ occupies only ~0.966-0.989, so checks are absolute; normalising by 0..1 would er
 signal.
 
 Orientation is probed twice: seven measured near/far pairs (a pass criterion) and Sobel edge
-IoU against same-frame colour (needs --colour and scipy). The transposed pair run is a
-control: if [x][y] scores as well as [y][x], orientation is unresolved - reported loudly, not
-failed on. Rotations of a 600x1000 frame are 1000x600, so each edge variant is scored on its
-overlap with the colour frame and `true` is re-scored on that same overlap.
+IoU against same-frame colour (needs scipy). Colour comes from the explicit --colour override
+when given, otherwise from a `c<frame>.bin` beside the depth dump, so the comparison is
+like-for-like by default; a frame with neither is SKIPped, never failed. `c*.bin` files are
+colour dumps with the same byte count as a depth frame, so the filename prefix - never the
+size - is what keeps them out of the depth list. The transposed pair run is a control: if
+[x][y] scores as well as [y][x], orientation is unresolved - reported loudly, not failed on.
+Rotations of a 600x1000 frame are 1000x600, so each edge variant is scored on its overlap with
+the colour frame and `true` is re-scored on that same overlap.
 """
 import argparse
 import json
@@ -22,11 +26,15 @@ import numpy as np
 
 WIDTH, HEIGHT = 1000, 600
 DEPTH_BYTES = WIDTH * HEIGHT * 4
+COLOUR_BYTES = WIDTH * HEIGHT * 4          # same count as depth, different meaning
 # Byte size -> (rows, cols, channels, needs a (0,0,1000,600) crop). 1040x1264 RGBA is the
-# retained RDC colour buffer, wider than the guest frame, so the crop is mandatory.
+# retained RDC colour buffer, wider than the guest frame, so the crop is mandatory. Only
+# --colour may use these legacy layouts; an auto-paired c<frame>.bin must be RGBA8 exactly.
 COLOUR_LAYOUTS = {1040 * 1264 * 4: (1264, 1040, 4, True),
                   WIDTH * HEIGHT * 4: (HEIGHT, WIDTH, 4, False),
                   WIDTH * HEIGHT * 3: (HEIGHT, WIDTH, 3, False)}
+# The same-frame producer contract: `c<frame>.bin` next to `d<frame>.bin`, RGBA8.
+COLOUR_FRAME_NAME = re.compile(r'^c(?P<frame>\d+)\.bin$', re.IGNORECASE)
 # Verbatim from out/tmp/nr-phase1/depth/analyse.py (measured on 26979/5281) so results stay
 # comparable with the 1040x1264 two-word dump.
 PAIRS = [('P1 character body vs fence plank behind', (505, 372), (500, 255)),
@@ -60,12 +68,23 @@ def frame_number(path):
     return int(match.group(1)) if match else None
 
 
+def is_colour_dump(path):
+    """`c<frame>.bin` is colour, never depth. Only the filename says so: both are 2,400,000 B."""
+    return path.suffix.lower() == '.bin' and path.name[:1].lower() == 'c'
+
+
 def ordered_files(path):
     if path.is_file():
+        # A c<frame>.bin read as depth would pass the size check and be misread, so refuse
+        # it explicitly. Other single files keep working: the producer's depth prefix is d.
+        if COLOUR_FRAME_NAME.match(path.name):
+            raise InputError(f'{path}: a same-frame colour dump (c<frame>.bin), not a depth frame')
         return [path]
-    files = list(path.glob('*.bin')) if path.is_dir() else []
+    # Same-frame colour dumps share the depth byte count, so a size test cannot separate
+    # them; the prefix does. They feed the IoU section only, never the depth statistics.
+    files = [p for p in path.glob('*.bin') if not is_colour_dump(p)] if path.is_dir() else []
     if not files:
-        raise InputError(f'no *.bin entries under: {path}')
+        raise InputError(f'no depth *.bin entries under: {path}')
     return sorted(files, key=lambda p: (frame_number(p) is None, frame_number(p) or 0, p.name))
 
 
@@ -80,6 +99,7 @@ def load_depth(path):
 
 
 def load_colour(path):
+    """Load a colour dump for the manual --colour override (legacy layouts allowed)."""
     size = path.stat().st_size
     if size not in COLOUR_LAYOUTS:
         raise InputError(f'{path}: {size} B is not a known colour dump {sorted(COLOUR_LAYOUTS)}')
@@ -89,6 +109,57 @@ def load_colour(path):
     if rgb.shape[:2] != (HEIGHT, WIDTH):
         raise InputError(f'{path}: {rgb.shape[:2]} after crop, expected {(HEIGHT, WIDTH)}')
     return rgb
+
+
+def load_same_frame_colour(path):
+    """Auto-paired colour must match the producer contract exactly: RGBA8, 2,400,000 B.
+
+    1,800,000 B is a *known* legacy RGB8 layout for --colour, so accepting the known-layout
+    set here would silently reinterpret a truncated/foreign c<frame>.bin as RGB8. The
+    prefix pairing is only trustworthy if the contract is strict.
+    """
+    size = path.stat().st_size
+    if size != COLOUR_BYTES:
+        raise InputError(f'{path}: {size} B, expected {COLOUR_BYTES} B (1000x600 RGBA8)')
+    return load_colour(path)
+
+
+def same_frame_colour(depth_path, frame):
+    """`c<frame>.bin` beside the depth dump, or None. Prefix decides, never file size."""
+    if frame is None:
+        return None
+    directory = depth_path.parent
+    exact = directory / f'c{frame}.bin'
+    if exact.is_file():
+        return exact
+    # Tolerate a zero-padded or differently-cased producer name by matching the frame
+    # number, while still requiring the colour prefix so a d*.bin can never be selected.
+    matches = sorted(p for p in directory.glob('*.bin')
+                     if is_colour_dump(p) and p.is_file() and frame_number(p) == frame)
+    return matches[0] if matches else None
+
+
+def resolve_colour(depth_path, frame, override):
+    """Which colour backs the IoU section for one frame, and whether it is usable.
+
+    An explicit --colour is a manual override and wins for every frame (its legacy layouts
+    stay supported). Otherwise the same-frame c<frame>.bin is used and held to the producer
+    contract exactly. A present-but-wrong-size same-frame file is unusable for that frame
+    only: the depth evidence is still valid, so it must not become exit 2.
+    """
+    if override is not None:
+        return {'source': 'override', 'file': str(override), 'status': 'ready', 'reason': None}
+    candidate = same_frame_colour(depth_path, frame)
+    if candidate is None:
+        reason = ('frame number unknown, so no c<frame>.bin can be paired'
+                  if frame is None else
+                  f'no c{frame}.bin beside the depth dump and no --colour')
+        return {'source': None, 'file': None, 'status': 'skipped', 'reason': reason}
+    size = candidate.stat().st_size
+    if size != COLOUR_BYTES:
+        return {'source': 'same-frame', 'file': str(candidate), 'status': 'unusable',
+                'reason': f'{size} B, expected {COLOUR_BYTES} B (1000x600 RGBA8)'}
+    return {'source': 'same-frame', 'file': str(candidate), 'status': 'ready', 'reason': None}
 
 
 def med3(image, x, y, radius=1):
@@ -239,15 +310,38 @@ def print_report(path, frames, colour_note, edge_status, failures, warnings, min
         print(f"not run: {colour_note['reason']} - the orientation gate item is UNVERIFIED.")
     else:
         print(colour_note['note'])
-        print(f"{'pct':>5} {'variant':<11} {'IoU':>7} {'true(same)':>11} {'crop':>9}")
-        for r in frames[0]['edge_iou']:
-            print(f"{r['percentile']:>5} {r['variant']:<11} {r['iou']:>7.4f} "
-                  f"{r['true_iou_same_crop']:>11.4f} {r['crop'][0]}x{r['crop'][1]}")
-        if len(frames) > 1:
-            print(f"(table is frame {frames[0]['label']}; per-frame IoU is in --json)")
-        e = frames[0]['edge_iou_result']
-        print(f"EDGE IoU: {'PASS' if e['ok'] else 'FAIL'} - true {e['true_max']:.4f} vs best "
-              f"control {e['control_max']:.4f} ({e['control_name']}@{e['control_percentile']})")
+        # One full table (the first frame that actually scored); every frame still gets a
+        # source line, because same-frame and borrowed comparisons are not equivalent.
+        shown = next((f for f in frames if f['colour']['status'] == 'run'), None)
+        if shown is not None:
+            c = shown['colour']
+            print(f"frame {shown['label']}: colour source {c['source']} ({c['file']})")
+            print(f"{'pct':>5} {'variant':<11} {'IoU':>7} {'true(same)':>11} {'crop':>9}")
+            for r in shown['edge_iou']:
+                print(f"{r['percentile']:>5} {r['variant']:<11} {r['iou']:>7.4f} "
+                      f"{r['true_iou_same_crop']:>11.4f} {r['crop'][0]}x{r['crop'][1]}")
+        for f in frames:
+            c = f['colour']
+            if c['status'] != 'run':
+                source = f"{c['source']} ({c['file']})" if c['source'] else 'none'
+                print(f"frame {f['label']}: colour source {source} - SKIP ({c['reason']})")
+            elif f is not shown:
+                r = f['edge_iou_result']
+                print(f"frame {f['label']}: colour source {c['source']} ({c['file']}) - "
+                      f"true {r['true_max']:.4f} vs best control {r['control_max']:.4f} "
+                      f"({r['control_name']}@{r['control_percentile']}) "
+                      f"{'PASS' if r['ok'] else 'FAIL'}")
+        if len(frames) > 1 and shown is not None:
+            print(f"(table is frame {shown['label']}; per-frame IoU is in --json)")
+        runs = [f for f in frames if f['colour']['status'] == 'run']
+        if runs:
+            worst = min(runs, key=lambda f: f['edge_iou_result']['true_max'] -
+                        f['edge_iou_result']['control_max'])
+            e = worst['edge_iou_result']
+            print(f"EDGE IoU: {'PASS' if edge_status['ok'] else 'FAIL'} - {len(runs)}/"
+                  f"{len(frames)} frame(s) scored; worst true {e['true_max']:.4f} vs best "
+                  f"control {e['control_max']:.4f} "
+                  f"({e['control_name']}@{e['control_percentile']}) on frame {worst['label']}")
     print('\n=== checks ===')
     print(f"[{'PASS' if len(frames) >= min_frames else 'FAIL'}] min-frames: "
           f'analysed {len(frames)}, need {min_frames}')
@@ -279,13 +373,15 @@ def main(argv=None):
                     'whose full depth range is only ~0.966-0.989 (2.3% of 0..1) and are NOT '
                     'generic.',
         epilog='Exit 0 = checks passed, 1 = analysed but a check failed, 2 = unusable input. '
-               '--colour enables the edge-IoU orientation gate (needs scipy); otherwise it is '
-               'reported unverified.')
+               'Colour for the edge-IoU orientation gate (needs scipy) comes from --colour when '
+               'given, otherwise from c<frame>.bin beside each depth dump; a frame with neither '
+               'is reported SKIP, and the gate stays unverified.')
     parser.add_argument('path', type=Path, help='a .bin dump or a directory of them')
     parser.add_argument('--pairs', type=Path,
                         help='JSON list of {"name": str, "near": [x,y], "far": [x,y]}')
     parser.add_argument('--colour', type=Path,
-                        help='same-frame colour: 1040x1264 RGBA8 or 1000x600 RGB8/RGBA8 raw')
+                        help='manual override for every frame: 1040x1264 RGBA8 or 1000x600 '
+                             'RGB8/RGBA8 raw; beats c<frame>.bin pairing')
     parser.add_argument('--json', action='store_true', help='machine-readable result object')
     parser.add_argument('--min-frames', type=int, default=1,
                         help='fail if fewer frames were analysed (acceptance gate uses 8)')
@@ -299,11 +395,18 @@ def main(argv=None):
             if not pairs:
                 raise InputError(f'{args.pairs}: empty pair list')
         # Load every frame up front: one wrong-size entry makes the input unusable rather than
-        # silently shortening the evidence set.
-        frames = [{'name': p.name, 'frame': frame_number(p), 'path': str(p), 'depth': load_depth(p)}
-                  for p in ordered_files(args.path)]
+        # silently shortening the evidence set. Directory scans never treat c*.bin as depth.
+        frames = []
+        for p in ordered_files(args.path):
+            frame = frame_number(p)
+            frames.append({'name': p.name, 'frame': frame, 'path': str(p), 'depth': load_depth(p),
+                           'label': '-' if frame is None else str(frame)})
         if args.colour and not args.colour.is_file():
             raise InputError(f'--colour is not a file: {args.colour}')
+        # Resolve each frame's colour before the checks: the IoU section is per-frame, and a
+        # missing/broken optional colour must not be confused with absent colour evidence.
+        for item in frames:
+            item['colour'] = resolve_colour(Path(item['path']), item['frame'], args.colour)
     except (InputError, OSError, ValueError, KeyError, TypeError) as exc:
         print(json.dumps({'error': str(exc)}, indent=2) if args.json else f'error: {exc}',
               file=sys.stdout if args.json else sys.stderr)
@@ -312,17 +415,14 @@ def main(argv=None):
     failures, warnings = [], {'orientation': '', 'other': []}
     if len(frames) < args.min_frames:
         failures.append(f'min-frames: analysed {len(frames)}, need {args.min_frames}')
-    # Edge IoU is optional; without colour (or scipy) the gate item is unverified, which must be
-    # said out loud, not silently treated as passed.
-    colour_note, edge_available = {'status': 'not-run', 'reason': '--colour not given'}, False
-    if args.colour:
-        try:
-            import scipy  # noqa: F401  (probe only; raises when scipy is absent)
-            edge_available = True
-        except ImportError:
-            colour_note = {'status': 'not-run',
-                           'reason': 'scipy is not importable, so edge-IoU cannot be computed'}
-    edge_status = {'status': 'not-run', 'ok': True, 'detail': f"not run ({colour_note['reason']})"}
+    # A same-frame colour that violates the producer contract loses only that frame's IoU:
+    # the depth evidence is still valid, and optional colour is never a hard failure.
+    for item in frames:
+        c = item['colour']
+        if c['status'] == 'unusable':
+            warnings['other'].append(
+                f"frame {item['label']}: {c['file']} is unusable as a same-frame colour "
+                f"({c['reason']}); IoU is SKIP for that frame")
 
     results = []
     for item in frames:
@@ -330,10 +430,9 @@ def main(argv=None):
         t_rows = pair_results(item['depth'].T, pairs)
         transposed = {'passed': sum(r['ok'] for r in t_rows), 'total': len(t_rows),
                       'valid': sum(r['valid'] for r in t_rows), 'rows': t_rows}
-        results.append({'name': item['name'], 'frame': item['frame'],
-                        'label': '-' if item['frame'] is None else str(item['frame']),
+        results.append({'name': item['name'], 'frame': item['frame'], 'label': item['label'],
                         'stats': s, 'pairs': s['pairs'], 'checks': s['checks'], 'ok': s['ok'],
-                        'transposed': transposed})
+                        'transposed': transposed, 'colour': item['colour']})
 
     # A transposed read scoring as well as the true one means the pair coordinates cannot
     # distinguish the two layouts.
@@ -348,44 +447,90 @@ def main(argv=None):
         warnings['orientation'] = ('ORIENTATION resolved: the transposed reading scores strictly '
                                    'lower than the true one on every frame.')
 
-    if edge_available:
+    # Edge IoU is optional; without a usable colour source (or scipy) the gate item is
+    # unverified, which must be said out loud, not silently treated as passed.
+    ready = [r for r in results if r['colour']['status'] == 'ready']
+    if not ready:
+        reason = ('no usable same-frame colour dump for any frame'
+                  if any(r['colour']['status'] == 'unusable' for r in results)
+                  else '--colour not given and no same-frame colour dump found')
+        colour_note = {'status': 'not-run', 'reason': reason}
+        edge_status = {'status': 'not-run', 'ok': True, 'detail': f'not run ({reason})'}
+    else:
         try:
-            edge_fail, edge_detail = [], []
-            for entry, item in zip(results, frames):
-                rows = edge_iou_rows(item['depth'], load_colour(args.colour))
-                entry['edge_iou'] = rows
-                # Pass = true beats every control *on the same crop*; the max over all rows is
-                # the headline number.
-                controls = [r for r in rows if r['variant'] != 'true']
-                best = max(controls, key=lambda r: r['iou'])
-                beat = all(r['iou'] < r['true_iou_same_crop'] for r in controls)
-                entry['edge_iou_result'] = {
-                    'ok': bool(beat), 'control_max': best['iou'], 'control_name': best['variant'],
-                    'true_max': max(r['iou'] for r in rows if r['variant'] == 'true'),
-                    'control_percentile': best['percentile']}
-                edge_detail.append(f"frame {entry['label']}: true "
-                                   f"{entry['edge_iou_result']['true_max']:.4f} vs best control "
-                                   f"{best['iou']:.4f} ({best['variant']}@{best['percentile']}) "
-                                   f"{'PASS' if beat else 'FAIL'}")
-                if not beat:
-                    edge_fail.append(entry['label'])
-        except (InputError, OSError) as exc:
-            # A colour dump of the wrong size is unusable input, not a failed check.
-            print(json.dumps({'error': str(exc)}, indent=2) if args.json else f'error: {exc}',
-                  file=sys.stdout if args.json else sys.stderr)
-            return 2
-        if len(results) > 1:
-            warnings['other'].append('a single --colour file was compared against every depth '
-                                     'frame; only its own frame pair is authoritative')
-        colour_note = {'status': 'run',
-                       'note': ('depth normalised by its own min..max for Sobel only (thresholds '
-                                'are percentiles); 1040x1264 colour is cropped to (0,0,1000,600)')}
-        edge_status = {'status': 'run', 'ok': not edge_fail,
-                       'detail': '; '.join(edge_detail) if not edge_fail else
-                       'fails on frame(s) ' + str(edge_fail) + ': ' + '; '.join(edge_detail)}
-    elif args.colour:
-        warnings['other'].append(colour_note['reason'] +
-                                 '; orientation rests on the pair control only')
+            import scipy  # noqa: F401  (probe only; raises when scipy is absent)
+            have_scipy = True
+        except ImportError:
+            have_scipy = False
+        if not have_scipy:
+            reason = 'scipy is not importable, so edge-IoU cannot be computed'
+            colour_note = {'status': 'not-run', 'reason': reason}
+            edge_status = {'status': 'not-run', 'ok': True, 'detail': f'not run ({reason})'}
+            for entry in ready:
+                entry['colour'].update(status='not-run', reason=reason)
+            warnings['other'].append(reason + '; orientation rests on the pair control only')
+        else:
+            try:
+                edge_fail = []
+                for entry, item in zip(results, frames):
+                    c = entry['colour']
+                    if c['status'] != 'ready':
+                        continue
+                    path = Path(c['file'])
+                    # The auto-paired file is RGBA8 by contract; --colour keeps the legacy
+                    # layouts because it is hand-supplied.
+                    rgb = (load_same_frame_colour(path) if c['source'] == 'same-frame'
+                           else load_colour(path))
+                    rows = edge_iou_rows(item['depth'], rgb)
+                    entry['edge_iou'] = rows
+                    # Pass = true beats every control *on the same crop*; the max over all rows
+                    # is the headline number.
+                    controls = [r for r in rows if r['variant'] != 'true']
+                    best = max(controls, key=lambda r: r['iou'])
+                    beat = all(r['iou'] < r['true_iou_same_crop'] for r in controls)
+                    entry['edge_iou_result'] = {
+                        'ok': bool(beat), 'control_max': best['iou'],
+                        'control_name': best['variant'],
+                        'true_max': max(r['iou'] for r in rows if r['variant'] == 'true'),
+                        'control_percentile': best['percentile']}
+                    c.update(status='run', reason=None)
+                    if not beat:
+                        edge_fail.append(entry['label'])
+            except (InputError, OSError) as exc:
+                # An explicit --colour of the wrong size is unusable input (exit 2), exactly
+                # as before. A wrong-size same-frame file never reaches here: it was rejected
+                # per frame above and only loses that frame's IoU.
+                print(json.dumps({'error': str(exc)}, indent=2) if args.json else f'error: {exc}',
+                      file=sys.stdout if args.json else sys.stderr)
+                return 2
+            if args.colour and len(results) > 1:
+                # Borrowed comparison only: same-frame pairs are like-for-like, so saying a
+                # single file was reused would be false there.
+                warnings['other'].append('a single --colour file was compared against every depth '
+                                         'frame; only its own frame pair is authoritative')
+            detail_parts = []
+            for entry in results:
+                c = entry['colour']
+                if c['status'] == 'run':
+                    e = entry['edge_iou_result']
+                    detail_parts.append(
+                        f"frame {entry['label']}: true {e['true_max']:.4f} vs best control "
+                        f"{e['control_max']:.4f} ({e['control_name']}@{e['control_percentile']}) "
+                        f"{'PASS' if e['ok'] else 'FAIL'}")
+                elif c['status'] == 'unusable':
+                    detail_parts.append(f"frame {entry['label']}: SKIP (unusable same-frame "
+                                        f"colour: {c['reason']})")
+                else:
+                    detail_parts.append(f"frame {entry['label']}: SKIP ({c['reason']})")
+            colour_note = {'status': 'run',
+                           'note': ('depth normalised by its own min..max for Sobel only '
+                                    '(thresholds are percentiles); each frame is scored against '
+                                    'its own colour source (legacy 1040x1264 is cropped to '
+                                    '(0,0,1000,600))')}
+            edge_status = {'status': 'run', 'ok': not edge_fail,
+                           'detail': ('' if not edge_fail else
+                                      f'fails on frame(s) {edge_fail}: ') +
+                                     '; '.join(detail_parts)}
 
     for r in results:
         for cid, ok, detail in r['checks']:
@@ -402,7 +547,9 @@ def main(argv=None):
                'path': str(args.path), 'frames_analysed': len(results),
                'frames': [{'file': r['name'], 'frame': r['frame'], 'stats': r['stats'],
                            'pairs': r['pairs'], 'transposed_control': r['transposed'],
-                           'edge_iou': r.get('edge_iou'), 'pass': r['ok']} for r in results],
+                           'colour': r['colour'], 'edge_iou': r.get('edge_iou'),
+                           'edge_iou_result': r.get('edge_iou_result'), 'pass': r['ok']}
+                          for r in results],
                'edge_iou_gate': edge_status, 'orientation_warning': warnings['orientation'],
                'warnings': warnings['other'], 'failed_checks': failures,
                'result': 'FAIL' if failures else 'PASS'}

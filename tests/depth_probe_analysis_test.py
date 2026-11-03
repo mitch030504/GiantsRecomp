@@ -4,9 +4,11 @@
 Pins what the depth-capture gate depends on and what a silent edit would otherwise
 hide: the absolute acceptance thresholds, one-check-at-a-time isolation, unusable
 input rejected as exit 2 rather than a failed check, the [y][x] orientation contract
-(the transposed control is loud but never fatal), the --json contract, and the
-optional --colour edge-IoU gate. Every frame is synthesized here; no capture, no
-out/tmp contents and no game data are read.
+(the transposed control is loud but never fatal), the --json contract, the optional
+--colour edge-IoU gate, and its same-frame c<frame>.bin pairing (precedence, per-frame
+SKIP, prefix-only depth filtering, and the strict size rule for auto-paired colour).
+Every frame is synthesized here; no capture, no out/tmp contents and no game data are
+read.
 """
 import importlib.util
 import json
@@ -118,6 +120,21 @@ def ambiguous_buffer():
 def write_depth(path, depth):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(np.ascontiguousarray(depth, dtype='<f4').tobytes())
+    return path
+
+
+def write_colour(path, depth):
+    """RGBA8 whose luma mirrors the depth ramp, so true-orientation edges correlate by design.
+
+    Exactly 2,400,000 B in row-major [y][x] with alpha last: the producer contract for a
+    same-frame c<frame>.bin.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    span = depth.max() - depth.min()
+    luma = np.clip(np.rint((depth - depth.min()) / span * 255.0), 0, 255).astype(np.uint8)
+    rgba = np.dstack([luma, luma, luma, np.full_like(luma, 255)])
+    path.write_bytes(rgba.tobytes())
+    assert path.stat().st_size == module.COLOUR_BYTES, 'fixture is not the contract size'
     return path
 
 
@@ -332,7 +349,128 @@ else:
         f'the IoU gate did not close:\n{result.stdout[-1200:]}'
     assert 'EDGE IoU: PASS' in result.stdout, 'IoU headline is not PASS'
 
+# --- 10. same-frame c<frame>.bin pairing ----------------------------------
+# The producer writes c<frame>.bin beside d<frame>.bin with the SAME byte count as the
+# depth dump, so the scanner must separate them by filename prefix and each frame's IoU
+# must use its own colour (like-for-like) instead of borrowing another frame's.
+scipy_ok = importlib.util.find_spec('scipy') is not None
+pair_dir = WORK / 'same-frame'
+write_depth(pair_dir / 'd10800.bin', happy)
+write_depth(pair_dir / 'd10801.bin', happy)
+write_colour(pair_dir / 'c10800.bin', happy)      # same frame index as d10800
+
+result = run(pair_dir)
+assert result.returncode == 0, \
+    f'a missing colour for one frame must not fail the run:\n{result.stdout[-1500:]}'
+assert 'RESULT: PASS' in result.stdout, 'same-frame directory run did not pass'
+# c10800.bin is colour, never a depth frame: the depth table lists exactly the two dumps.
+table = re.findall(r'^\s*(\d+)\s+(\S+\.bin)\s', result.stdout, re.MULTILINE)
+assert table == [('10800', 'd10800.bin'), ('10801', 'd10801.bin')], \
+    f'c10800.bin leaked into the depth frame list: {table}'
+assert 'a single --colour file was compared against every depth frame' not in result.stdout, \
+    'same-frame pairing must not raise the borrowed-comparison warning'
+if scipy_ok:
+    assert 'frame 10800: colour source same-frame' in result.stdout, result.stdout[-1500:]
+    assert 'frame 10801: colour source none - SKIP' in result.stdout, result.stdout[-1500:]
+    assert '[PASS] edge-iou' in result.stdout, 'same-frame IoU did not close the gate'
+    assert 'EDGE IoU: PASS' in result.stdout, 'same-frame IoU headline is not PASS'
+else:
+    assert '[SKIP] edge-iou' in result.stdout, 'no scipy must leave the gate SKIP'
+
+result = run(pair_dir, '--json')
+payload = json.loads(result.stdout)
+assert result.returncode == 0, f'--json on the paired directory must exit 0:\n{result.stderr}'
+assert payload['result'] == 'PASS', payload['failed_checks']
+assert payload['frames_analysed'] == 2, \
+    f"c10800.bin was counted as a depth frame: {payload['frames_analysed']}"
+assert [f['file'] for f in payload['frames']] == ['d10800.bin', 'd10801.bin'], \
+    [f['file'] for f in payload['frames']]
+paired, unpaired = payload['frames']
+assert paired['colour']['source'] == 'same-frame', paired['colour']
+assert paired['colour']['file'].endswith('c10800.bin'), paired['colour']
+assert unpaired['colour']['source'] is None, unpaired['colour']
+assert unpaired['colour']['status'] == 'skipped', unpaired['colour']
+assert 'no c10801.bin' in unpaired['colour']['reason'], unpaired['colour']
+if scipy_ok:
+    # The same-frame luma IS the depth ramp, so the true reading must beat every control.
+    assert paired['colour']['status'] == 'run', paired['colour']
+    assert paired['edge_iou'] and paired['edge_iou_result']['ok'] is True, \
+        f"same-frame IoU did not pass: {paired['edge_iou_result']}"
+    assert unpaired['edge_iou'] is None, 'a frame with no colour must not score IoU'
+    assert payload['edge_iou_gate']['status'] == 'run' and payload['edge_iou_gate']['ok'], \
+        payload['edge_iou_gate']
+    assert 'frame 10801: SKIP' in payload['edge_iou_gate']['detail'], payload['edge_iou_gate']
+else:
+    assert paired['colour']['status'] == 'not-run', paired['colour']
+
+# --colour is a manual override: it beats same-frame pairing for EVERY frame and must be
+# reported as the override source even though c10800.bin is sitting right there.
+override = WORK / 'override.rgb'
+span = happy.max() - happy.min()
+override_luma = np.clip(np.rint((happy - happy.min()) / span * 255.0), 0, 255).astype(np.uint8)
+override.write_bytes(np.repeat(override_luma[:, :, None], 3, axis=2).tobytes())  # legacy RGB8
+result = run(pair_dir, '--colour', override)
+assert result.returncode == 0, f'--colour override must exit 0:\n{result.stdout[-1500:]}'
+if scipy_ok:
+    assert f'colour source override ({override})' in result.stdout, \
+        'human report does not name the override source'
+result = run(pair_dir, '--colour', override, '--json')
+payload = json.loads(result.stdout)
+assert [f['colour']['source'] for f in payload['frames']] == ['override', 'override'], \
+    [f['colour'] for f in payload['frames']]
+for f in payload['frames']:
+    assert f['colour']['file'] == str(override), f['colour']
+if scipy_ok:
+    assert all(f['colour']['status'] == 'run' for f in payload['frames']), \
+        [f['colour'] for f in payload['frames']]
+    # Borrowed comparison: the warning stays, because 10801's colour is not its own.
+    assert any('a single --colour file was compared against every depth frame' in w
+               for w in payload['warnings']), payload['warnings']
+
+# --- 11. wrong-sized same-frame colour: unusable for its frame, never misread ----
+# Rule chosen: an auto-paired c<frame>.bin must be exactly 2,400,000 B RGBA8 (the producer
+# contract). Any other size makes colour unusable FOR THAT FRAME: IoU is SKIP, a WARN names
+# both sizes, and the run's exit code is untouched, because the depth evidence is
+# independent and colour is optional. It is NOT exit 2 - that older rule remains for an
+# explicit --colour, where the user asked for that exact file. 1,800,000 B is deliberately
+# the size of a valid legacy RGB8 --colour layout: reusing the known-layout set here would
+# silently misread a truncated/foreign c<frame>.bin as RGB8, which is what this pins.
+bad_dir = WORK / 'same-frame-wrong-size'
+write_depth(bad_dir / 'd10800.bin', happy)
+bad_colour = bad_dir / 'c10800.bin'
+bad_colour.write_bytes(b'\0' * 1_800_000)
+assert bad_colour.stat().st_size == 1_800_000
+result = run(bad_dir)
+assert result.returncode == 0, \
+    f'a wrong-size same-frame colour must not fail the depth run:\n{result.stdout[-1500:]}'
+assert 'RESULT: PASS' in result.stdout, 'depth checks should still pass'
+assert '[SKIP] edge-iou' in result.stdout, 'unusable colour leaves the IoU gate unrun'
+assert '1800000' in result.stdout and '2400000' in result.stdout, \
+    'the unusable-colour report does not name both sizes'
+assert 'is unusable as a same-frame colour' in result.stdout, \
+    'the wrong-size colour is not called out'
+result = run(bad_dir, '--json')
+payload = json.loads(result.stdout)
+assert result.returncode == 0, result.stderr
+assert payload['result'] == 'PASS', payload['failed_checks']
+bad = payload['frames'][0]['colour']
+assert bad['source'] == 'same-frame' and bad['status'] == 'unusable', bad
+assert '1800000 B' in bad['reason'] and '2400000 B' in bad['reason'], bad
+assert payload['frames'][0]['edge_iou'] is None and \
+    payload['frames'][0]['edge_iou_result'] is None, 'wrong-size colour was silently read'
+assert payload['edge_iou_gate']['status'] == 'not-run', payload['edge_iou_gate']
+
+# The explicit override keeps its own, older rule: an unknown size is unusable input (2).
+if scipy_ok:
+    unknown = WORK / 'colour-unknown-size.bin'
+    unknown.write_bytes(b'\0' * 1_000_000)
+    result = run(base, '--colour', unknown)
+    assert result.returncode == 2, \
+        f'--colour of an unknown size must stay exit 2, got {result.returncode}'
+    assert '1000000' in result.stderr, result.stderr
+
 WORK_DIR.cleanup()
 print('depth probe analysis: absolute thresholds pinned, per-check isolation, exit-2 input '
-      'rejection, [y][x] orientation (transpose loud but not fatal), --json contract and the '
-      'optional --colour IoU gate all hold')
+      'rejection, [y][x] orientation (transpose loud but not fatal), --json contract, the '
+      'optional --colour IoU gate, and same-frame c<frame>.bin pairing (precedence, per-frame '
+      'SKIP, prefix-only depth filtering, strict size rule) all hold')
