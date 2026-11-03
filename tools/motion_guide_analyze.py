@@ -8,16 +8,30 @@ jitter already removed), z is reserved (0) and w is validity (1 = a draw with
 a complete previous frame covered the pixel, 0 = no history / non-scene).
 
 Checks (absolute, pinned below): geometry/finiteness/bounds/validity, a
-static-camera p99 gate, a pan-coherence smoke test, local motion as a finding,
-a depth coverage cross-check, validity coverage, and channel sanity. A constant
-field that looks like unsubtracted jitter fails channel sanity: it must be
-reported, never silently passed.
+static-camera p99 gate, a sign/scale gate against phase-correlated colour, a
+pan-coherence smoke test, local motion as a finding, a depth coverage
+cross-check, validity coverage, and channel sanity. A constant field that looks
+like unsubtracted jitter fails channel sanity: it must be reported, never
+silently passed.
 
 Static gate conversion: x,y are clip-space NDC, so at 1000 wide one pixel is
 2/WIDTH = 0.002 NDC. STATIC_P99_NDC = 0.0003 is therefore 0.75 px horizontally
 (0.45 px at 600 rows); a 1 px shift (0.002 NDC) fails. The acceptance note's
 "~0.15 px" figure is 5x tighter than this pinned smoke gate; the report prints
 both so a re-baseline is visible.
+
+Sign/scale gate: with --colour, consecutive c<frame>.bin frames are reduced to
+luma and phase-correlated with numpy FFTs (no scipy dependency). The correlation
+peak gives the global shift from the previous to the current frame, wrapped at
+half extent and refined by a parabolic fit. The median valid motion in pixels
+(x*W/2, y*H/2) must match that shift within max(1 px, 10% of the shift) on both
+axes and carry the same sign where an axis is at least 0.5 px. A colour shift
+below 0.5 px cannot test a sign, so the gate is skipped with that reason, never
+passed. A Y flip, an x/y swap and a 2x scale produce distinct failure reasons.
+In auto mode the measured colour shift picks pan or static; without a
+measurable colour shift the older motion-median detector is used. `pan` always
+engages the sign gate, and a frame whose colour shift cannot be measured is an
+explicit skip, never a sign-verified pass.
 
 NaN/Inf make the dump unusable (exit 2): every percentile would be poisoned.
 A wrong size is unusable too. A valid-looking frame with a failed check is
@@ -61,12 +75,21 @@ TOP_DECILE = 0.10
 # Below this the median vector is effectively zero, so direction is undefined
 # and the pan smoke test is skipped rather than fed a meaningless angle.
 COHERENCE_MIN_PAN_PIXELS = 0.01
-# Above 2.5 px/frame the frame is a pan, not a static camera. In auto mode the
-# static p99 gate is skipped for it; a 1 px jitter residual (0.002 NDC) stays
-# below the detector and is judged by the static gate. --expect overrides this.
-# The detector is the median, so a frame whose majority is an independently
-# moving object is mistaken for a pan; --expect static is the override.
+# Above 2.5 px/frame the frame is a pan, not a static camera. In auto mode this
+# motion-median detector is only the fallback when no colour shift is
+# measurable; a measurable colour shift (>= SIGN_GATE_MIN_SHIFT_PX) selects pan
+# instead. The detector is the median, so a frame whose majority is an
+# independently moving object is mistaken for a pan; --expect static overrides.
 PAN_DETECT_NDC = 0.005
+# Sign/scale gate. The median valid motion must match the phase-correlated
+# colour shift within 10% of that shift, floored at 1 px; below 0.5 px the
+# colour shift cannot establish a sign and the gate is skipped, never passed.
+SIGN_GATE_MIN_SHIFT_PX = 0.5
+SIGN_GATE_TOL_FRACTION = 0.10
+SIGN_GATE_TOL_MIN_PX = 1.0
+# Cross-power normalisation floor. A flat frame has no usable phase; it yields
+# a zero correlation and the below-0.5-px skip rather than a failure.
+PHASE_CORR_EPS = 1e-12
 # Local motion: 2% of valid pixels must deviate from the frame median by more
 # than 0.01 NDC (5 px horizontally). Absence is a finding, not a hard failure.
 MIN_MOVING_FRACTION = 0.02
@@ -88,6 +111,7 @@ ZERO_EPS_NDC = 1e-6
 DIRECTION_BIN_DEG = 15.0
 
 MOTION_FRAME_NAME = re.compile(r'^m(?P<frame>\d+)\.bin$', re.IGNORECASE)
+COLOUR_FRAME_NAME = re.compile(r'^c(?P<frame>\d+)\.bin$', re.IGNORECASE)
 
 
 class InputError(Exception):
@@ -166,6 +190,99 @@ def load_colour(path):
     return np.fromfile(path, dtype=np.uint8).reshape(HEIGHT, WIDTH, CHANNELS)
 
 
+def luma_channel(rgb):
+    """BT.601 luma, the same weights the colour report already used."""
+    return (0.299 * rgb[..., 0].astype(np.float32)
+            + 0.587 * rgb[..., 1].astype(np.float32)
+            + 0.114 * rgb[..., 2].astype(np.float32))
+
+
+def _parabolic_offset(corr, iy, ix, axis):
+    """Sub-pixel peak offset from the 3-tap neighbourhood, clamped to 0.5 bin.
+
+    The neighbourhood wraps, so a peak at the border uses the real opposite
+    edge instead of a zero. A flat denominator (no curvature) means no
+    refinement; the integer peak stands.
+    """
+    size = corr.shape[axis]
+    centre = iy if axis == 0 else ix
+    before = (centre - 1) % size
+    after = (centre + 1) % size
+    if axis == 0:
+        c0, cm, cp = corr[iy, ix], corr[before, ix], corr[after, ix]
+    else:
+        c0, cm, cp = corr[iy, ix], corr[iy, before], corr[iy, after]
+    denom = float(cm - 2.0 * c0 + cp)
+    if denom == 0.0:
+        return 0.0
+    offset = 0.5 * float(cm - cp) / denom
+    return float(np.clip(offset, -0.5, 0.5))
+
+
+def phase_correlation_shift(previous_luma, current_luma):
+    """Global (x, y) content shift from previous to current, in pixels.
+
+    Cross-power phase correlation on zero-mean luma: FFT both frames, multiply
+    the current spectrum by the conjugate of the previous one, normalise the
+    magnitude, inverse FFT and take the peak. x is positive right and y is
+    positive down (row order), matching the pixel conversion of the motion
+    field. The peak wraps at half extent; the parabolic fit adds sub-pixel
+    precision. Numpy only: scipy is not a dependency of these tools.
+    """
+    previous = np.asarray(previous_luma, dtype=np.float64)
+    current = np.asarray(current_luma, dtype=np.float64)
+    if previous.shape != (HEIGHT, WIDTH) or current.shape != (HEIGHT, WIDTH):
+        raise ValueError(f'phase correlation needs {WIDTH}x{HEIGHT} luma, got '
+                         f'{previous.shape} and {current.shape}')
+    previous = previous - previous.mean()
+    current = current - current.mean()
+    cross = np.fft.rfft2(current) * np.conj(np.fft.rfft2(previous))
+    magnitude = np.abs(cross)
+    usable = bool(np.any(magnitude > PHASE_CORR_EPS))
+    if usable:
+        cross = cross / np.maximum(magnitude, PHASE_CORR_EPS)
+    else:
+        # Flat frames: every bin is below the floor. The inverse transform of a
+        # zero spectrum peaks at 0, which the caller reports as an unmeasurable
+        # (below 0.5 px) shift rather than a pass.
+        cross = np.zeros_like(cross)
+    corr = np.fft.irfft2(cross, s=(HEIGHT, WIDTH))
+    iy, ix = np.unravel_index(int(np.argmax(corr)), corr.shape)
+    dy = int(iy) if iy < HEIGHT / 2 else int(iy) - HEIGHT
+    dx = int(ix) if ix < WIDTH / 2 else int(ix) - WIDTH
+    fraction_y = _parabolic_offset(corr, iy, ix, 0)
+    fraction_x = _parabolic_offset(corr, iy, ix, 1)
+    return {
+        'shift_px': [round(dx + fraction_x, 4), round(dy + fraction_y, 4)],
+        'peak': round(float(corr[iy, ix]), 6),
+        'peak_found': usable,
+        'subpixel': bool(abs(fraction_x) > 1e-6 or abs(fraction_y) > 1e-6),
+    }
+
+
+def colour_frame_numbers(directory):
+    """Frame numbers that have a c<frame>.bin in the colour directory."""
+    numbers = set()
+    for path in directory.glob('*.bin'):
+        if path.is_file() and COLOUR_FRAME_NAME.match(path.name):
+            number = frame_number(path)
+            if number is not None:
+                numbers.add(number)
+    return numbers
+
+
+def previous_colour_frame(numbers, frame):
+    """The immediately preceding colour frame (frame-1), or None.
+
+    Motion is current minus previous, so the colour pair must be frame-1 and
+    frame. Falling back to an older file would measure a multi-frame shift and
+    turn a real one-frame pan into a false sign failure.
+    """
+    if frame is None:
+        return None
+    return frame - 1 if frame - 1 in numbers else None
+
+
 def paired_file(directory, prefix, frame):
     """`<prefix><frame>.bin` in a companion directory, exact name first."""
     if frame is None:
@@ -212,6 +329,10 @@ def conventions():
         'static_p99_px_horizontal': STATIC_P99_PX_HORIZONTAL,
         'static_p99_px_vertical': STATIC_P99_PX_VERTICAL,
         'coherence': 'smoke test, not a sign test',
+        'colour_shift': 'phase correlation on luma between consecutive colour frames',
+        'sign_gate_min_shift_px': SIGN_GATE_MIN_SHIFT_PX,
+        'sign_gate_tolerance': 'per-axis |error| <= max(1 px, 10% of colour shift)',
+        'sign_gate_sign': 'same sign on both axes where |colour axis| >= 0.5 px',
     }
 
 
@@ -242,8 +363,161 @@ def skip_check(check_id, reason):
             'reason': reason}
 
 
+SHIFT_FAILURE_TEXT = {
+    'axis-swap': 'x/y axes swapped',
+    'sign-flip-x': 'X axis sign flipped',
+    'sign-flip-y': 'Y axis sign flipped',
+    'sign-flip-xy': 'both axis signs flipped',
+    'scale-2x': '2x scale',
+    'scale-0.5x': '0.5x scale',
+    'mismatch': 'shift mismatch',
+}
+
+
+def classify_shift_failure(motion, shift, tolerance):
+    """Name the failure mode when the direct comparison already failed.
+
+    Distinct strings matter: a Y flip, an x/y swap and a 2x scale are all
+    'the motion disagrees with colour', but they point at different pipeline
+    mistakes, so the report must not collapse them into one reason.
+    """
+    mx, my = motion
+    cx, cy = shift
+    direct_x = abs(mx - cx) <= tolerance
+    direct_y = abs(my - cy) <= tolerance
+    swapped = abs(mx - cy) <= tolerance and abs(my - cx) <= tolerance
+    if swapped and not (direct_x and direct_y):
+        # A symmetric shift makes the swap comparison identical to the direct
+        # one; only call it a swap when the axes are genuinely distinct.
+        if (abs(cx - cy) > SIGN_GATE_MIN_SHIFT_PX
+                or abs(cx + cy) > SIGN_GATE_MIN_SHIFT_PX):
+            return 'axis-swap'
+    flip_x = (abs(mx + cx) <= tolerance
+              and abs(cx) >= SIGN_GATE_MIN_SHIFT_PX)
+    flip_y = (abs(my + cy) <= tolerance
+              and abs(cy) >= SIGN_GATE_MIN_SHIFT_PX)
+    if flip_x and flip_y and not direct_x and not direct_y:
+        return 'sign-flip-xy'
+    if flip_x and not direct_x and direct_y:
+        return 'sign-flip-x'
+    if flip_y and not direct_y and direct_x:
+        return 'sign-flip-y'
+    if abs(mx - 2.0 * cx) <= tolerance and abs(my - 2.0 * cy) <= tolerance:
+        return 'scale-2x'
+    if abs(mx - 0.5 * cx) <= tolerance and abs(my - 0.5 * cy) <= tolerance:
+        return 'scale-0.5x'
+    return 'mismatch'
+
+
+def evaluate_sign_scale(med_px, valid_count, colour, effective, mode_reason):
+    """Compare the median valid motion with the phase-correlated colour shift.
+
+    Returns (check, detail). The check is a real pass/fail only when a colour
+    shift of at least SIGN_GATE_MIN_SHIFT_PX is measurable and the frame is a
+    pan; otherwise it is an explicit skip so a static frame is never recorded
+    as a proven sign.
+    """
+    motion = [float(med_px[0]), float(med_px[1])]
+    motion_len = float(np.hypot(*motion))
+    colour = colour or {}
+    shift = colour.get('shift_px')
+    if shift is not None:
+        shift = [float(shift[0]), float(shift[1])]
+        shift_len = float(np.hypot(*shift))
+    else:
+        shift_len = None
+    detail = {
+        'status': 'skip', 'reason': None, 'failure_kind': None,
+        'colour_file': colour.get('file'),
+        'previous_file': colour.get('previous_file'),
+        'colour_shift_px': None if shift is None
+                           else [round(value, 4) for value in shift],
+        'colour_shift_magnitude_px': None if shift_len is None
+                                     else round(shift_len, 4),
+        'motion_shift_px': [round(value, 4) for value in motion],
+        'motion_shift_magnitude_px': round(motion_len, 4),
+        'error_px': None, 'error_length_px': None, 'ratio': None,
+        'tolerance_px': None, 'sign_x_ok': None, 'sign_y_ok': None,
+        'sign_x_tested': None, 'sign_y_tested': None,
+        'peak': colour.get('shift_peak'),
+    }
+
+    def skipped(reason):
+        detail['status'] = 'skip'
+        detail['reason'] = reason
+        return skip_check('sign-scale', reason), detail
+
+    if valid_count == 0:
+        return skipped('no valid motion pixels, so the median shift is undefined')
+    if colour.get('status') == 'not-requested' or not colour:
+        return skipped(
+            'no --colour supplied; the sign/scale gate cannot run, so this '
+            'frame does not prove the motion sign')
+    if shift is None:
+        reason = (colour.get('shift_reason') or colour.get('reason')
+                  or 'no measurable colour shift')
+        return skipped(f'{reason}; sign/scale gate skipped, sign is unproven')
+    if shift_len < SIGN_GATE_MIN_SHIFT_PX:
+        texture_note = ''
+        if colour.get('shift_reason'):
+            texture_note = f"{colour['shift_reason']}; "
+        return skipped(
+            f'{texture_note}colour shift {shift_len:.3f} px < '
+            f'{SIGN_GATE_MIN_SHIFT_PX} px; a static frame cannot test sign '
+            f'(gate skipped, not passed)')
+    if effective != 'pan':
+        return skipped(
+            f'colour shift {shift_len:.3f} px, but {mode_reason} declares a '
+            f'static frame; a static frame cannot test sign (the static p99 '
+            f'gate is the applicable check)')
+
+    cx, cy = shift
+    mx, my = motion
+    error = [mx - cx, my - cy]
+    error_len = float(np.hypot(*error))
+    tolerance = max(SIGN_GATE_TOL_MIN_PX,
+                    SIGN_GATE_TOL_FRACTION * shift_len)
+    sign_x_tested = abs(cx) >= SIGN_GATE_MIN_SHIFT_PX
+    sign_y_tested = abs(cy) >= SIGN_GATE_MIN_SHIFT_PX
+    sign_x_ok = (not sign_x_tested) or (mx * cx > 0.0)
+    sign_y_ok = (not sign_y_tested) or (my * cy > 0.0)
+    axis_ok = abs(error[0]) <= tolerance and abs(error[1]) <= tolerance
+    ok = bool(axis_ok and sign_x_ok and sign_y_ok)
+    ratio = motion_len / shift_len
+    detail.update({
+        'status': 'pass' if ok else 'fail',
+        'colour_shift_px': [round(cx, 4), round(cy, 4)],
+        'colour_shift_magnitude_px': round(shift_len, 4),
+        'error_px': [round(error[0], 4), round(error[1], 4)],
+        'error_length_px': round(error_len, 4),
+        'ratio': round(ratio, 4),
+        'tolerance_px': round(tolerance, 4),
+        'sign_x_tested': bool(sign_x_tested),
+        'sign_y_tested': bool(sign_y_tested),
+        'sign_x_ok': bool(sign_x_ok) if sign_x_tested else None,
+        'sign_y_ok': bool(sign_y_ok) if sign_y_tested else None,
+    })
+    base = (f'colour shift ({cx:+.3f}, {cy:+.3f}) px, motion median '
+            f'({mx:+.3f}, {my:+.3f}) px; signed error ({error[0]:+.3f}, '
+            f'{error[1]:+.3f}) px = {error_len:.3f} px; ratio {ratio:.3f}; '
+            f'tolerance {tolerance:.3f} px (max({SIGN_GATE_TOL_MIN_PX:g} px, '
+            f'{SIGN_GATE_TOL_FRACTION:.0%} of {shift_len:.3f} px))')
+    if ok:
+        reason = (base + '; signs match where tested (axis >= '
+                  f'{SIGN_GATE_MIN_SHIFT_PX} px), within tolerance')
+        detail['reason'] = reason
+        return make_check('sign-scale', True, reason), detail
+    kind = classify_shift_failure(motion, shift, tolerance)
+    detail['failure_kind'] = kind
+    reason = (f'{kind} ({SHIFT_FAILURE_TEXT[kind]}): {base}; need '
+              f'|error| <= {tolerance:.3f} px per axis and the same sign on '
+              f'both axes')
+    detail['reason'] = reason
+    return make_check('sign-scale', False, reason), detail
+
+
 def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
-             coverage_note=None):
+             coverage_note=None, colour=None):
     """Run the per-frame checks. Every reason says why the check exists."""
     x = motion[..., 0].astype(np.float32)
     y = motion[..., 1].astype(np.float32)
@@ -293,6 +567,34 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
     max_invalid_ndc = 0.0
     if invalid_count:
         max_invalid_ndc = float(np.hypot(x[~valid], y[~valid]).max())
+
+    # Effective expectation. Auto follows the measured colour shift when one
+    # exists, because that is the independent sign evidence; the motion median
+    # is only the fallback when colour cannot measure a shift. --expect stays
+    # an explicit override in both directions.
+    colour_shift = (colour or {}).get('shift_px')
+    if colour_shift is not None:
+        colour_shift = [float(colour_shift[0]), float(colour_shift[1])]
+        colour_shift_len = float(np.hypot(*colour_shift))
+    else:
+        colour_shift_len = None
+    if expect == 'auto':
+        if colour_shift_len is not None:
+            effective = ('pan' if colour_shift_len >= SIGN_GATE_MIN_SHIFT_PX
+                         else 'static')
+            mode_reason = (
+                f'auto: colour shift {colour_shift_len:.3f} px '
+                f'{"at or above" if effective == "pan" else "below"} '
+                f'{SIGN_GATE_MIN_SHIFT_PX} px')
+        else:
+            effective = ('pan' if median_len_ndc >= PAN_DETECT_NDC
+                         else 'static')
+            mode_reason = (
+                f'auto (no usable colour shift): motion median '
+                f'{median_len_px:.2f} px / {median_len_ndc:.6f} NDC')
+    else:
+        effective = expect
+        mode_reason = f'--expect {expect}'
 
     # Channel sanity uses the median vector as the modal proxy: a true constant
     # field (the failure mode) is 100% within tolerance, while a 60/40 mixture
@@ -346,6 +648,8 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
         'direction_undefined': direction_undefined,
         'direction_histogram_deg': histogram,
         'mean_direction_deg': mean_direction_deg,
+        'expect_effective': effective,
+        'expect_reason': mode_reason,
     }
 
     checks = []
@@ -365,15 +669,11 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
         else f'{len(bad_validity)} non-binary validity value(s): {bad_validity}'))
 
     # --- 2. static camera -------------------------------------------------
-    if expect == 'pan':
-        static = skip_check('static-p99',
-                            'not applicable: --expect pan declares a pan frame')
-    elif expect == 'auto' and median_len_ndc >= PAN_DETECT_NDC:
+    if effective == 'pan':
         static = skip_check(
             'static-p99',
-            f'not applicable: global pan {median_len_ndc:.6f} NDC '
-            f'({median_len_px:.2f} px) >= {PAN_DETECT_NDC} NDC; the static gate '
-            f'applies to static frames only (use --expect static to force)')
+            f'not applicable: {mode_reason} declares a pan frame; the static '
+            f'gate applies to static frames only (use --expect static to force)')
     elif valid_count == 0:
         static = make_check('static-p99', False,
                             'no valid pixels, so p99 is undefined')
@@ -387,7 +687,12 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
             f'{STATIC_P99_PX_VERTICAL:.2f} px vertical)')
     checks.append(static)
 
-    # --- 3. global coherence (pan) ----------------------------------------
+    # --- 3. sign and scale against phase-correlated colour ----------------
+    sign_check, sign_scale = evaluate_sign_scale(
+        med_px, valid_count, colour, effective, mode_reason)
+    checks.append(sign_check)
+
+    # --- 4. global coherence (pan) ----------------------------------------
     coherence = {'status': 'skip', 'median_motion_px': [round(v, 4) for v in med_px],
                  'median_motion_ndc': [round(v, 9) for v in med_ndc],
                  'median_length_px': round(median_len_px, 4),
@@ -449,7 +754,7 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
             'sign_test': False,
         }
 
-    # --- 4. local motion --------------------------------------------------
+    # --- 5. local motion --------------------------------------------------
     if valid_count:
         deviation = np.hypot(vx - med_ndc[0], vy - med_ndc[1])
         moving = int((deviation > LOCAL_DEVIATION_NDC).sum())
@@ -477,7 +782,7 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
              'min_fraction': MIN_MOVING_FRACTION,
              'required': bool(require_local_motion), 'finding': finding}
 
-    # --- 5. depth coverage cross-check ------------------------------------
+    # --- 6. depth coverage cross-check ------------------------------------
     if depth is None:
         reason = coverage_note or 'no --depth supplied; coverage cross-check not run'
         checks.append(skip_check('coverage', reason))
@@ -529,7 +834,7 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
             'reason': reason,
         }
 
-    # --- 6. validity coverage ---------------------------------------------
+    # --- 7. validity coverage ---------------------------------------------
     in_band = VALIDITY_BAND[0] <= valid_fraction <= VALIDITY_BAND[1]
     validity_reason = (f'valid fraction {valid_fraction:.6f} in '
                        f'[{VALIDITY_BAND[0]}, {VALIDITY_BAND[1]}]')
@@ -539,7 +844,7 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
         validity_reason += '; fully invalid means the validity gate is not working'
     checks.append(make_check('validity', in_band, validity_reason))
 
-    # --- 7. channel sanity ------------------------------------------------
+    # --- 8. channel sanity ------------------------------------------------
     if valid_count == 0:
         channel = make_check('channel-sanity', True,
                              'no valid pixels to inspect (validity coverage fails)')
@@ -572,6 +877,7 @@ def evaluate(motion, depth=None, expect='auto', require_local_motion=False,
 
     return {'stats': stats, 'checks': checks, 'local_motion': local,
             'coherence': coherence, 'coverage': coverage,
+            'sign_scale': sign_scale,
             'pass': all(check['ok'] for check in checks)}
 
 
@@ -586,17 +892,23 @@ def print_report(path, results, failures, findings, warnings, min_frames):
           f'top-decile direction <= {COHERENCE_ANGLE_TOL_DEG:g} deg; local >= '
           f'{MIN_MOVING_FRACTION:.0%} of valid > {LOCAL_DEVIATION_NDC} NDC; '
           f'coverage >= {COVERAGE_MIN:.0%} of drawn and valid-over-sky == 0; '
-          f'valid in {list(VALIDITY_BAND)}.')
-    print('Note: coherence is a smoke test, not a sign test; direction statistics '
-          'use pixel space (x*W/2, y*H/2).')
+          f'valid in {list(VALIDITY_BAND)}; sign gate: colour shift >= '
+          f'{SIGN_GATE_MIN_SHIFT_PX} px and per-axis |error| <= max('
+          f'{SIGN_GATE_TOL_MIN_PX:g} px, {SIGN_GATE_TOL_FRACTION:.0%} of the '
+          f'shift), same sign on both axes.')
+    print('Note: coherence is a smoke test, not a sign test; the sign/scale check '
+          'is the sign test (phase-correlated colour). Direction statistics use '
+          'pixel space (x*W/2, y*H/2).')
     print()
     print(f"{'frame':>8} {'file':<22} {'valid':>8} {'p99 NDC':>10} {'p99 px':>8} "
-          f"{'local':>8} {'coherence':>9} {'coverage':>8}")
+          f"{'sign':>6} {'local':>8} {'coherence':>9} {'coverage':>8}")
     for result in results:
         stats = result['stats']
         print(f"{result['label']:>8} {result['file']:<22} "
               f"{stats['valid_fraction']:>8.4%} {stats['p99_motion_ndc']:>10.6f} "
-              f"{stats['p99_motion_px']:>8.2f} {result['local_motion']['status']:>8} "
+              f"{stats['p99_motion_px']:>8.2f} "
+              f"{result['sign_scale']['status']:>6} "
+              f"{result['local_motion']['status']:>8} "
               f"{result['coherence']['status']:>9} {result['coverage']['status']:>8}")
     print()
     for result in results:
@@ -639,8 +951,9 @@ def main(argv=None):
         description='Validate a 1000x600 R16G16B16A16_SFLOAT motion-guide dump '
                     '(m<frame>.bin). x,y are clip-space NDC motion (current minus '
                     'previous, jitter removed), z is reserved, w is validity. '
-                    'Thresholds are absolute and pinned; the coherence check is a '
-                    'smoke test, not a sign test.',
+                    'With --colour, phase-correlated colour frames gate the sign '
+                    'and scale of the median motion. Thresholds are absolute and '
+                    'pinned; the coherence check is a smoke test, not a sign test.',
         epilog='Exit 0 = checks passed, 1 = analysed but a check failed, 2 = unusable '
                'input (wrong size, NaN/Inf, missing path, malformed companion). '
                'A local_motion=absent result is a finding, not a failure, unless '
@@ -651,11 +964,15 @@ def main(argv=None):
                              'the coverage cross-check (paired by frame number)')
     parser.add_argument('--colour', type=Path,
                         help='directory of c<frame>.bin 1000x600 RGBA8 colour dumps; '
-                             'validated and reported, no required check consumes it')
+                             'c<frame-1>.bin and c<frame>.bin are phase-correlated on '
+                             'luma to gate the motion sign and scale (a missing '
+                             'previous frame is a clear skip)')
     parser.add_argument('--expect', choices=('auto', 'static', 'pan'), default='auto',
-                        help='static-camera intent: auto skips the p99 gate when a '
-                             'global pan is detected (default), static forces it, pan '
-                             'skips it and allows a constant field as a real pan')
+                        help='frame intent: auto picks pan when the measured colour '
+                             'shift is >= 0.5 px and static otherwise, falling back to '
+                             'the motion median without colour (default); static forces '
+                             'the p99 gate; pan skips it and requires the colour '
+                             'sign/scale gate')
     parser.add_argument('--require-local-motion', action='store_true',
                         help='turn an absent local_motion finding into a failed check')
     parser.add_argument('--min-frames', type=int, default=1,
@@ -691,19 +1008,54 @@ def main(argv=None):
             for item in items:
                 item['depth'] = {'status': 'not-requested', 'file': None, 'reason': None}
         if args.colour is not None:
+            colour_numbers = colour_frame_numbers(args.colour)
             ready = 0
             for item in items:
                 companion = resolve_companion(args.colour, 'c', item['frame'],
                                               COLOUR_BYTES, 'colour')
+                companion.setdefault('previous_file', None)
+                companion.setdefault('shift_px', None)
+                companion.setdefault('shift_reason', None)
                 if companion['status'] == 'ready':
                     rgb = load_colour(Path(companion['file']))
                     valid = item['motion'][..., 3] == 1.0
-                    luma = (0.299 * rgb[..., 0].astype(np.float32)
-                            + 0.587 * rgb[..., 1].astype(np.float32)
-                            + 0.114 * rgb[..., 2].astype(np.float32))
+                    luma = luma_channel(rgb)
                     companion['mean_luma_valid'] = (
                         round(float(luma[valid].mean()), 4) if valid.any() else None)
                     companion['mean_luma_all'] = round(float(luma.mean()), 4)
+                    previous_number = previous_colour_frame(
+                        colour_numbers, item['frame'])
+                    if previous_number is None:
+                        if item['frame'] is None:
+                            companion['shift_reason'] = (
+                                'frame number unknown, so no previous colour '
+                                'frame can be paired')
+                        else:
+                            companion['shift_reason'] = (
+                                f'no c{item["frame"] - 1}.bin (the immediately '
+                                f'preceding colour frame); phase correlation '
+                                f'needs two consecutive frames')
+                    else:
+                        previous = resolve_companion(
+                            args.colour, 'c', previous_number,
+                            COLOUR_BYTES, 'colour')
+                        if previous['status'] != 'ready':
+                            companion['shift_reason'] = (
+                                f"{previous['reason']}; no usable previous "
+                                f'colour frame, so the shift cannot be measured')
+                        else:
+                            previous_rgb = load_colour(Path(previous['file']))
+                            shift = phase_correlation_shift(
+                                luma_channel(previous_rgb), luma)
+                            companion['previous_file'] = previous['file']
+                            companion['shift_px'] = shift['shift_px']
+                            companion['shift_peak'] = shift['peak']
+                            companion['shift_subpixel'] = shift['subpixel']
+                            companion['luma_std'] = round(float(luma.std()), 4)
+                            if not shift['peak_found']:
+                                companion['shift_reason'] = (
+                                    'no luma texture in the colour pair; the '
+                                    'phase correlation peak is undefined')
                     ready += 1
                 item['colour'] = companion
             if ready == 0 and not any(
@@ -742,7 +1094,7 @@ def main(argv=None):
             warnings.append(f"frame {item['label']}: {note}")
         result = evaluate(item['motion'], depth=depth, expect=args.expect,
                           require_local_motion=args.require_local_motion,
-                          coverage_note=note)
+                          coverage_note=note, colour=item['colour'])
         result['coverage']['depth_file'] = item['depth'].get('file')
         result.update({'file': item['path'].name, 'frame': item['frame'],
                        'label': item['label'], 'path': str(item['path']),

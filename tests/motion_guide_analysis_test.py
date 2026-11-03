@@ -3,12 +3,14 @@
 
 Pins what the motion-guide gate depends on and what a silent edit would
 otherwise hide: the 4,800,000 B RGBA16F contract, every absolute threshold,
-the static-camera p99 gate (1 px noise must fail), the pan-coherence smoke test
-(an x/y swap must fail it), local motion as a finding rather than a hard fail,
-the depth coverage cross-check (valid motion over sky is fatal, a missing
-sample is not), validity coverage, the constant-jitter failure, exit-2 input
-rejection, and the --json contract. Every frame is synthesized here; no capture,
-out/tmp contents and no game data are read.
+the static-camera p99 gate (1 px noise must fail), the phase-correlated
+sign/scale gate (a known pan passes; a Y flip, an x/y swap and a 2x scale fail
+with distinct reasons; a sub-0.5 px colour shift skips rather than passes), the
+pan-coherence smoke test (an x/y swap must fail it), local motion as a finding
+rather than a hard fail, the depth coverage cross-check (valid motion over sky
+is fatal, a missing sample is not), validity coverage, the constant-jitter
+failure, exit-2 input rejection, and the --json contract. Every frame is
+synthesized here; no capture, out/tmp contents and no game data are read.
 """
 import importlib.util
 import json
@@ -84,6 +86,46 @@ def write_colour(path, value=128):
     return path
 
 
+def write_colour_array(path, luma):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rgba = np.empty((HEIGHT, WIDTH, 4), dtype=np.uint8)
+    rgba[..., 0] = luma
+    rgba[..., 1] = luma
+    rgba[..., 2] = luma
+    rgba[..., 3] = 255
+    path.write_bytes(rgba.tobytes())
+    assert path.stat().st_size == module.COLOUR_BYTES, 'colour fixture is not 2,400,000 B'
+    return path
+
+
+def shifted_luma(previous, dx, dy):
+    """Content moved by (dx, dy) pixels, y down; fractional shifts use FFT."""
+    if float(dx).is_integer() and float(dy).is_integer():
+        return np.roll(previous, shift=(int(dy), int(dx)), axis=(0, 1))
+    fy = np.fft.fftfreq(HEIGHT)[:, None]
+    fx = np.fft.fftfreq(WIDTH)[None, :]
+    spectrum = np.fft.fft2(previous.astype(np.float64))
+    spectrum *= np.exp(-2j * np.pi * (fx * dx + fy * dy))
+    shifted = np.fft.ifft2(spectrum).real
+    return np.clip(np.rint(shifted), 0, 255).astype(np.uint8)
+
+
+def write_colour_pair(directory, previous_frame, current_frame, dx, dy, seed=7):
+    """Two consecutive noise frames whose content moves by (dx, dy) pixels."""
+    rng = np.random.default_rng(seed)
+    previous = rng.integers(0, 256, (HEIGHT, WIDTH), dtype=np.uint8)
+    current = shifted_luma(previous, dx, dy)
+    return (write_colour_array(directory / f'c{previous_frame}.bin', previous),
+            write_colour_array(directory / f'c{current_frame}.bin', current))
+
+
+def colour_motion(dx, dy, valid=None):
+    """A uniform motion field whose NDC components are exactly (dx, dy) px."""
+    x = np.full((HEIGHT, WIDTH), dx * 2.0 / WIDTH, dtype=np.float32)
+    y = np.full((HEIGHT, WIDTH), dy * 2.0 / HEIGHT, dtype=np.float32)
+    return x, y, border_valid() if valid is None else valid
+
+
 def run(*args):
     return subprocess.run([sys.executable, str(TOOL), *map(str, args)],
                           capture_output=True, text=True)
@@ -125,7 +167,11 @@ assert module.VALIDITY_BAND == (0.20, 0.999), module.VALIDITY_BAND
 assert module.PAN_DETECT_NDC == 0.005, module.PAN_DETECT_NDC
 assert module.JITTER_LIKE_MAX_NDC == 0.002, module.JITTER_LIKE_MAX_NDC
 assert module.DIRECTION_BIN_DEG == 15.0, module.DIRECTION_BIN_DEG
+assert module.SIGN_GATE_MIN_SHIFT_PX == 0.5, module.SIGN_GATE_MIN_SHIFT_PX
+assert module.SIGN_GATE_TOL_FRACTION == 0.10, module.SIGN_GATE_TOL_FRACTION
+assert module.SIGN_GATE_TOL_MIN_PX == 1.0, module.SIGN_GATE_TOL_MIN_PX
 assert module.MOTION_FRAME_NAME.match('m10800.bin'), 'm<frame>.bin naming changed'
+assert module.COLOUR_FRAME_NAME.match('c10800.bin'), 'c<frame>.bin naming changed'
 
 # --- 2. happy path: uniform pan plus a moving block ------------------------
 happy_dir = WORK / 'happy'
@@ -363,7 +409,7 @@ assert payload['failed_checks'] == [], payload
 assert payload['frames_analysed'] == 1, payload
 frame = payload['frames'][0]
 for key in ('file', 'frame', 'label', 'path', 'stats', 'checks', 'local_motion',
-            'coherence', 'coverage', 'depth', 'colour', 'pass'):
+            'coherence', 'coverage', 'sign_scale', 'depth', 'colour', 'pass'):
     assert key in frame, f'missing frame JSON key: {key}'
 assert frame['file'] == 'm10800.bin', frame
 assert frame['frame'] == 10800, frame
@@ -381,8 +427,8 @@ for check in frame['checks']:
         assert key in check, f'missing check JSON key: {key}'
 assert [check['id'] for check in frame['checks']] == [
     'size', 'finite', 'motion-bound', 'validity-binary', 'static-p99',
-    'coherence', 'local-motion', 'coverage', 'validity', 'channel-sanity'], \
-    [check['id'] for check in frame['checks']]
+    'sign-scale', 'coherence', 'local-motion', 'coverage', 'validity',
+    'channel-sanity'], [check['id'] for check in frame['checks']]
 assert payload['conventions']['static_p99_px_horizontal'] == 0.15, payload['conventions']
 assert payload['conventions']['coherence'] == 'smoke test, not a sign test'
 
@@ -428,31 +474,237 @@ assert 'need 2' in result.stdout, result.stdout
 payload = json.loads(run(happy, '--min-frames', '2', '--json').stdout)
 assert any('min-frames' in line for line in payload['failed_checks']), payload['failed_checks']
 
-# --- 11. --colour is optional, validated, and never gates ----------------
+# --- 11. --colour is optional and validated; a lone frame cannot gate -----
 colour_dir = WORK / 'colour'
 write_motion(colour_dir / 'm10800.bin', *pan_block())
 write_colour(colour_dir / 'c10800.bin', value=200)
 result = run(colour_dir / 'm10800.bin', '--colour', colour_dir)
 assert result.returncode == 0, f'a paired colour must not fail the run:\n{result.stdout}'
+assert '[SKIP] sign-scale' in result.stdout, \
+    'one colour frame has no shift, so the sign gate must skip'
+assert '[PASS] sign-scale' not in result.stdout, 'a lone colour frame falsely passed sign'
 payload = json.loads(run(colour_dir / 'm10800.bin', '--colour', colour_dir, '--json').stdout)
 colour = payload['frames'][0]['colour']
 assert colour['status'] == 'ready', colour
 assert colour['file'].endswith('c10800.bin'), colour
 assert colour['mean_luma_valid'] is not None, colour
+assert colour['shift_px'] is None, colour
+assert 'no c10799.bin' in colour['shift_reason'], colour
 
-# A wrong-size colour is a warning, not a failed check: no required check uses it.
+# A wrong-size colour is a warning and a clear skip, never a crash or a pass.
 bad_colour_dir = WORK / 'bad-colour'
 write_motion(bad_colour_dir / 'm10800.bin', *pan_block())
 (bad_colour_dir / 'c10800.bin').write_bytes(b'\0' * 1_800_000)
 result = run(bad_colour_dir / 'm10800.bin', '--colour', bad_colour_dir)
 assert result.returncode == 0, f'a wrong-size optional colour must not fail:\n{result.stdout}'
 assert '1800000' in result.stdout and '2400000' in result.stdout, result.stdout
+assert '[SKIP] sign-scale' in result.stdout, result.stdout
 payload = json.loads(run(bad_colour_dir / 'm10800.bin', '--colour',
                          bad_colour_dir, '--json').stdout)
 assert payload['frames'][0]['colour']['status'] == 'unusable', payload['frames'][0]['colour']
+assert payload['frames'][0]['sign_scale']['status'] == 'skip', payload['frames'][0]['sign_scale']
 assert payload['result'] == 'PASS', payload
 
-# --- 12. reserved z is a warning, not a gate ------------------------------
+# --- 12. sign/scale gate against phase-correlated colour -------------------
+# The phase-correlation helper itself recovers a fractional shift and applies
+# the parabolic fit; this pins the sub-pixel path independently of the CLI.
+rng = np.random.default_rng(99)
+previous_luma = rng.random((HEIGHT, WIDTH))
+fy = np.fft.fftfreq(HEIGHT)[:, None]
+fx = np.fft.fftfreq(WIDTH)[None, :]
+shifted = np.fft.ifft2(np.fft.fft2(previous_luma)
+                       * np.exp(-2j * np.pi * (fx * 3.4 + fy * -2.3))).real
+measured = module.phase_correlation_shift(previous_luma, shifted)
+assert close(measured['shift_px'][0], 3.4, 0.2), measured
+assert close(measured['shift_px'][1], -2.3, 0.2), measured
+assert measured['subpixel'] is True, measured
+assert measured['peak_found'] is True, measured
+
+# A shift past half extent wraps to the shorter signed offset: +520 px on a
+# 1000-wide frame is -480 px.
+wrapped = np.roll(previous_luma, shift=(0, 520), axis=(0, 1))
+measured = module.phase_correlation_shift(previous_luma, wrapped)
+assert close(measured['shift_px'][0], -480.0, 0.2), measured
+assert close(measured['shift_px'][1], 0.0, 0.2), measured
+
+# A known +3 px x, -2 px y pan is written into both the motion field and the
+# colour pair. The phase correlation must recover it and the median motion must
+# agree, so this is a real sign test, not the coherence smoke test.
+sign_dir = WORK / 'sign'
+sign_motion = write_motion(sign_dir / 'm10800.bin', *colour_motion(3.0, -2.0))
+write_colour_pair(sign_dir, 10799, 10800, 3.0, -2.0)
+result = run(sign_motion, '--colour', sign_dir)
+assert result.returncode == 0, f'a known pan must pass the sign gate:\n{result.stdout}'
+assert '[PASS] sign-scale' in result.stdout, result.stdout
+assert '[SKIP] static-p99' in result.stdout, \
+    'auto must classify a >= 0.5 px colour shift as a pan'
+payload = json.loads(run(sign_motion, '--colour', sign_dir, '--json').stdout)
+frame = payload['frames'][0]
+sign = frame['sign_scale']
+assert sign['status'] == 'pass', sign
+assert close(sign['colour_shift_px'][0], 3.0, 0.05), sign
+assert close(sign['colour_shift_px'][1], -2.0, 0.05), sign
+assert close(sign['motion_shift_px'][0], 3.0, 0.01), sign
+assert close(sign['motion_shift_px'][1], -2.0, 0.01), sign
+assert close(sign['ratio'], 1.0, 0.01), sign
+assert sign['tolerance_px'] >= 1.0, sign
+assert sign['sign_x_ok'] is True and sign['sign_y_ok'] is True, sign
+assert frame['stats']['expect_effective'] == 'pan', frame['stats']
+assert sign['previous_file'].endswith('c10799.bin'), sign
+
+# The same motion with the Y sign flipped must fail for the Y sign, not with a
+# generic mismatch.
+flip_dir = WORK / 'sign-yflip'
+flip_motion = write_motion(flip_dir / 'm10800.bin', *colour_motion(3.0, 2.0))
+write_colour_pair(flip_dir, 10799, 10800, 3.0, -2.0, seed=8)
+result = run(flip_motion, '--colour', flip_dir)
+assert result.returncode == 1, 'a Y-flipped motion must fail the sign gate'
+assert failed_ids(result.stdout) == ['sign-scale'], failed_ids(result.stdout)
+assert 'sign-flip-y' in result.stdout, result.stdout
+payload = json.loads(run(flip_motion, '--colour', flip_dir, '--json').stdout)
+sign = payload['frames'][0]['sign_scale']
+assert sign['failure_kind'] == 'sign-flip-y', sign
+assert sign['sign_y_ok'] is False, sign
+assert close(sign['error_px'][1], 4.0, 0.05), sign
+
+# An x/y-swapped motion field must be named as an axis swap.
+swap_sign_dir = WORK / 'sign-swap'
+swap_sign_motion = write_motion(swap_sign_dir / 'm10800.bin',
+                                *colour_motion(-2.0, 3.0))
+write_colour_pair(swap_sign_dir, 10799, 10800, 3.0, -2.0, seed=9)
+result = run(swap_sign_motion, '--colour', swap_sign_dir)
+assert result.returncode == 1, 'an x/y-swapped motion must fail the sign gate'
+assert failed_ids(result.stdout) == ['sign-scale'], failed_ids(result.stdout)
+assert 'axis-swap' in result.stdout, result.stdout
+payload = json.loads(run(swap_sign_motion, '--colour', swap_sign_dir, '--json').stdout)
+assert payload['frames'][0]['sign_scale']['failure_kind'] == 'axis-swap', \
+    payload['frames'][0]['sign_scale']
+
+# A 2x-scaled motion field must be named as a 2x scale.
+scale_dir = WORK / 'sign-scale-2x'
+scale_motion = write_motion(scale_dir / 'm10800.bin', *colour_motion(6.0, -4.0))
+write_colour_pair(scale_dir, 10799, 10800, 3.0, -2.0, seed=10)
+result = run(scale_motion, '--colour', scale_dir)
+assert result.returncode == 1, 'a 2x-scaled motion must fail the sign gate'
+assert failed_ids(result.stdout) == ['sign-scale'], failed_ids(result.stdout)
+assert 'scale-2x' in result.stdout, result.stdout
+payload = json.loads(run(scale_motion, '--colour', scale_dir, '--json').stdout)
+assert payload['frames'][0]['sign_scale']['failure_kind'] == 'scale-2x', \
+    payload['frames'][0]['sign_scale']
+assert close(payload['frames'][0]['sign_scale']['ratio'], 2.0, 0.01), \
+    payload['frames'][0]['sign_scale']
+
+# The 10% tolerance, not just the 1 px floor: a 40 px colour shift allows
+# 4 px. A 5% (2 px) error passes; a 12.5% (5 px) error fails.
+wide_dir = WORK / 'sign-wide'
+wide_motion = write_motion(wide_dir / 'm10800.bin', *colour_motion(42.0, 0.0))
+write_colour_pair(wide_dir, 10799, 10800, 40.0, 0.0, seed=11)
+result = run(wide_motion, '--colour', wide_dir)
+assert result.returncode == 0, f'a 5% error inside the 10% band must pass:\n{result.stdout}'
+payload = json.loads(run(wide_motion, '--colour', wide_dir, '--json').stdout)
+assert close(payload['frames'][0]['sign_scale']['tolerance_px'], 4.0, 0.05), \
+    payload['frames'][0]['sign_scale']
+wide_bad_dir = WORK / 'sign-wide-bad'
+wide_bad_motion = write_motion(wide_bad_dir / 'm10800.bin',
+                               *colour_motion(45.0, 0.0))
+write_colour_pair(wide_bad_dir, 10799, 10800, 40.0, 0.0, seed=12)
+result = run(wide_bad_motion, '--colour', wide_bad_dir)
+assert result.returncode == 1, 'a 12.5% error must fail the 10% band'
+assert failed_ids(result.stdout) == ['sign-scale'], failed_ids(result.stdout)
+assert 'mismatch' in result.stdout, result.stdout
+
+# Below 0.5 px a colour shift cannot establish a sign: the gate is skipped
+# with that reason, never recorded as a pass. Auto also chooses static for it.
+small_dir = WORK / 'sign-small'
+small_motion = write_motion(small_dir / 'm10800.bin', *colour_motion(0.0, 0.0))
+write_colour_pair(small_dir, 10799, 10800, 0.25, -0.2, seed=13)
+result = run(small_motion, '--colour', small_dir)
+assert result.returncode == 0, f'a sub-0.5 px shift must skip, not fail:\n{result.stdout}'
+assert '[SKIP] sign-scale' in result.stdout, result.stdout
+assert '[PASS] sign-scale' not in result.stdout, 'a sub-0.5 px shift falsely passed'
+assert '< 0.5 px' in result.stdout and 'cannot test sign' in result.stdout, result.stdout
+payload = json.loads(run(small_motion, '--colour', small_dir, '--json').stdout)
+sign = payload['frames'][0]['sign_scale']
+assert sign['status'] == 'skip', sign
+assert 'cannot test sign' in sign['reason'], sign
+assert payload['frames'][0]['stats']['expect_effective'] == 'static', \
+    payload['frames'][0]['stats']
+# The same skip holds when pan is forced: the gate cannot manufacture a sign.
+result = run(small_motion, '--colour', small_dir, '--expect', 'pan')
+assert result.returncode == 0, result.stdout
+assert '[SKIP] sign-scale' in result.stdout, result.stdout
+assert '[PASS] sign-scale' not in result.stdout, result.stdout
+
+# A flat colour pair has no phase information. It is a clear skip (not a
+# pass), and the reason names the missing texture rather than inventing one.
+flat_dir = WORK / 'sign-flat'
+flat_motion = write_motion(flat_dir / 'm10800.bin', *colour_motion(0.0, 0.0))
+write_colour(flat_dir / 'c10799.bin', value=128)
+write_colour(flat_dir / 'c10800.bin', value=128)
+result = run(flat_motion, '--colour', flat_dir)
+assert result.returncode == 0, f'a flat colour pair must skip, not crash:\n{result.stdout}'
+assert '[SKIP] sign-scale' in result.stdout, result.stdout
+assert '[PASS] sign-scale' not in result.stdout, 'a flat pair falsely passed sign'
+assert 'no luma texture' in result.stdout, result.stdout
+
+# Auto follows the measured colour shift, not the motion field: the same 3 px
+# motion against a static colour pair is classified static and fails p99.
+auto_dir = WORK / 'sign-auto-static'
+auto_motion = write_motion(auto_dir / 'm10800.bin', *colour_motion(3.0, -2.0))
+write_colour_pair(auto_dir, 10799, 10800, 0.0, 0.0, seed=14)
+result = run(auto_motion, '--colour', auto_dir)
+assert result.returncode == 1, 'a static colour pair must force the static gate'
+assert 'static-p99' in failed_ids(result.stdout), failed_ids(result.stdout)
+assert '[SKIP] sign-scale' in result.stdout, result.stdout
+assert '[SKIP] static-p99' not in result.stdout, result.stdout
+
+# Missing and invalid colour frames are clear skips, never crashes.
+missing_colour_dir = WORK / 'sign-missing'
+missing_motion = write_motion(missing_colour_dir / 'm10800.bin',
+                              *colour_motion(3.0, -2.0))
+result = run(missing_motion, '--colour', missing_colour_dir)
+assert result.returncode == 0, f'a missing colour pair must not crash:\n{result.stdout}'
+assert '[SKIP] sign-scale' in result.stdout, result.stdout
+assert '[WARN]' in result.stdout, 'missing colour must be warned about'
+assert 'no c<frame>.bin pairs' in result.stdout, result.stdout
+payload = json.loads(run(missing_motion, '--colour', missing_colour_dir,
+                         '--json').stdout)
+assert payload['frames'][0]['sign_scale']['status'] == 'skip', payload
+
+# A valid current frame with an invalid previous frame is a clear skip too.
+bad_previous_dir = WORK / 'sign-bad-previous'
+bad_previous_motion = write_motion(bad_previous_dir / 'm10800.bin',
+                                   *colour_motion(3.0, -2.0))
+write_colour_pair(bad_previous_dir, 10799, 10800, 3.0, -2.0, seed=15)
+(bad_previous_dir / 'c10799.bin').write_bytes(b'\0' * 1_800_000)
+result = run(bad_previous_motion, '--colour', bad_previous_dir)
+assert result.returncode == 0, f'an invalid previous colour must not crash:\n{result.stdout}'
+assert '[SKIP] sign-scale' in result.stdout, result.stdout
+assert '1800000' in result.stdout and '2400000' in result.stdout, result.stdout
+payload = json.loads(run(bad_previous_motion, '--colour', bad_previous_dir,
+                         '--json').stdout)
+assert payload['frames'][0]['sign_scale']['status'] == 'skip', payload
+assert 'no usable previous colour frame' in payload['frames'][0]['sign_scale']['reason'], payload
+
+# A gap in the colour sequence must skip, not compare a one-frame motion
+# against a multi-frame colour shift (c10798 -> c10800 here).
+gap_dir = WORK / 'sign-gap'
+gap_motion = write_motion(gap_dir / 'm10800.bin', *colour_motion(3.0, -2.0))
+rng = np.random.default_rng(16)
+gap_previous = rng.integers(0, 256, (HEIGHT, WIDTH), dtype=np.uint8)
+write_colour_array(gap_dir / 'c10798.bin', gap_previous)
+write_colour_array(gap_dir / 'c10800.bin', shifted_luma(gap_previous, 6.0, -4.0))
+result = run(gap_motion, '--colour', gap_dir)
+assert result.returncode == 0, f'a colour sequence gap must skip:\n{result.stdout}'
+assert '[SKIP] sign-scale' in result.stdout, result.stdout
+assert 'no c10799.bin' in result.stdout, result.stdout
+
+# --colour pointing at a file is unusable input, not a traceback.
+result = run(sign_motion, '--colour', sign_motion)
+assert result.returncode == 2, '--colour pointed at a file must exit 2'
+assert 'not a directory' in result.stderr, result.stderr
+
+# --- 13. reserved z is a warning, not a gate ------------------------------
 z_frame = write_motion(WORK / 'z' / 'm50000.bin', zero, zero, border_valid(), z=1.0)
 result = run(z_frame)
 assert result.returncode == 0, f'reserved z must not fail the run:\n{result.stdout}'
@@ -461,8 +713,10 @@ assert '[WARN]' in result.stdout, 'the reserved-channel diagnostic is not a warn
 
 WORK_DIR.cleanup()
 print('motion guide analysis: contract size/format, pinned thresholds, static p99 '
-      '(1 px noise fails), pan coherence (x/y swap fails), local motion as a finding, '
-      'depth coverage (sky violation and low coverage fail, invalid above scene counted), '
-      'validity band, constant-jitter failure, exit-2 input rejection, --json contract, '
-      'numeric frame order, companion prefix filtering, --min-frames, optional --colour, '
-      'and reserved-z warning all hold')
+      '(1 px noise fails), phase-correlated sign/scale (known pan passes; Y flip, '
+      'x/y swap, 2x scale fail distinctly; sub-0.5 px skips), auto follows the '
+      'measured colour shift, pan coherence (x/y swap fails), local motion as a '
+      'finding, depth coverage (sky violation and low coverage fail, invalid above '
+      'scene counted), validity band, constant-jitter failure, exit-2 input '
+      'rejection, --json contract, numeric frame order, companion prefix filtering, '
+      '--min-frames, optional/validated --colour, and reserved-z warning all hold')
