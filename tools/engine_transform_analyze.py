@@ -53,21 +53,22 @@ def truth(value):
 
 
 def parse_rows(log):
-    """Return ({frame: {instance: row}}, duplicates, unmatched, capped, nonfinite,
-    stale, part_split).
+    """Return ({frame: {(instance, part): row}}, duplicates, unmatched, capped,
+    nonfinite, stale, part_split).
 
-    An instance can legitimately apply several attributes in a frame; the state-1
-    world transform belongs to the node, so the first row for (frame, instance) is
-    canonical and later duplicates are counted rather than averaged.
+    An identity can legitimately apply several attributes in a frame; the state-1
+    world transform belongs to the node, so the first row for (frame, instance,
+    part) is canonical and later duplicates are counted rather than averaged.
 
-    A row is keyed by instance because that is what motion has always been measured
-    on. When the same instance applies different `part` values in one frame those
-    rows are not duplicate applications - identity is `(instance, part)` - so they
-    are counted separately instead of inflating the duplicate count. Keying the
-    motion tables by part is the next step, not this parser's job.
+    Rows are keyed by `(instance, part)` because that is the motion identity: the
+    2026-11-03 audit found 71 of 297 instances applying more than one part under a
+    literal `part=0`, and keying those by instance alone gave one part's history to
+    another. `part_split` still counts how many additional part rows appeared, for
+    the run summary.
     """
     frames = defaultdict(dict)
     duplicates = Counter()
+    parts_by_instance = defaultdict(set)
     unmatched = capped = nonfinite = stale = part_split = 0
     for line in log.splitlines():
         if 'engine_trace transform_unmatched' in line:
@@ -113,13 +114,14 @@ def parse_rows(log):
                'aligned': truth(match.group('aligned')),
                'matrix_hash': match.group('matrix_hash'),
                'matrix': words}
-        if instance in frames[frame]:
-            if frames[frame][instance]['part'] == part:
-                duplicates[(frame, instance)] += 1
-            else:
-                part_split += 1
+        if (instance, part) in frames[frame]:
+            duplicates[(frame, instance, part)] += 1
             continue
-        frames[frame][instance] = row
+        seen_parts = parts_by_instance[(frame, instance)]
+        if seen_parts and part not in seen_parts:
+            part_split += 1
+        seen_parts.add(part)
+        frames[frame][(instance, part)] = row
     return frames, duplicates, unmatched, capped, nonfinite, stale, part_split
 
 
@@ -233,10 +235,13 @@ def analyse(frames, duplicates, unmatched, capped, nonfinite=0, stale=0, part_sp
         # One relative transform covering almost every instance means the applied
         # matrix carries camera motion; per-instance motion is then not isolated.
         'camera_like': any(p['dominant_share'] >= 0.9 and p['instances'] >= 10 for p in pairs),
-        'motion': {str(i): {'frames_changed': changed[i],
-                            'max_relative_step': step.get(i, 0.0),
-                            'max_world_delta': translation.get(i, 0.0)}
-                   for i in sorted(changed)},
+        # Identity is (instance, part): the audit found 71/297 instances applying
+        # several parts, and `instance` alone would merge their motion. Keys are
+        # written "instance:part" so the JSON stays flat and sortable.
+        'motion': {f'{instance}:{part}': {'frames_changed': changed[(instance, part)],
+                                          'max_relative_step': step.get((instance, part), 0.0),
+                                          'max_world_delta': translation.get((instance, part), 0.0)}
+                   for instance, part in sorted(changed)},
     }
 
 

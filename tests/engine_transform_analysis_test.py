@@ -81,9 +81,9 @@ assert dup['max_relative_step'] == 0.0, dup
 
 # Identity fields are optional on read: new rows expose the real part and the draw's
 # marker id, rows from before the change still parse with neither invented.
-new = module.parse_rows(row(10, 9, IDENTITY, part=41, part_index=3, marker_id=0x1F))[0][10][9]
+new = module.parse_rows(row(10, 9, IDENTITY, part=41, part_index=3, marker_id=0x1F))[0][10][(9, 41)]
 assert (new['part'], new['part_index'], new['marker_id']) == (41, 3, '0000001F'), new
-old = module.parse_rows(row(10, 9, IDENTITY))[0][10][9]
+old = module.parse_rows(row(10, 9, IDENTITY))[0][10][(9, 0)]
 assert (old['part'], old['part_index'], old['marker_id']) == (0, None, None), old
 
 # Two different parts of one instance in one frame are not a duplicate application;
