@@ -88,6 +88,48 @@ cross-compiled Windows build (`tools/windows_cross.sh`).
 - Run Proton's own `wine` with vkd3d-proton and DXVK loaded (the scripts do this). Wine's builtin
   vkd3d can't compile the render-target dump shaders, and every resolve fails.
 
+## FSR 4.1.2 on native Linux (Track 4)
+
+**Current state:** the native Linux build upscales with **FSR 3.1.4**, built from source from the
+SDK 1.1.4 fork (`rexglue_fidelityfx.cmake`); the Windows build uses AMD's prebuilt FidelityFX SDK
+2.4 DLLs, which run **FSR 4.1.2** where the GPU and driver support it (see the Proton section
+above). FSR 4 has no public source at SDK v2.4.0 — `Kits/FidelityFX/upscalers/` is FSR 3 only and
+the FSR 4 code ships solely as signed Windows DLLs under `signedbin/` — so a native Linux FSR 4
+needs extracted assets plus a runtime.
+
+**Routes, in order:**
+
+1. **User-built drop-in (first).** You build an fsr4-vk-style `amd_fidelityfx_upscaler_vk.so`
+   yourself from your own copy of the SDK v2.4.0 DLL and place it next to the executable (or point
+   `fsr4_data_path` at its folder). With `fsr4 = true` the runtime `dlopen`s it through a new Linux
+   branch in `ffx_runtime` and falls back to the linked FSR 3.1.4 when it is missing or refuses to
+   start.
+2. **Own extractor + runtime (end state, not implemented yet).** Our own MIT extractor, pinned
+   fail-closed to the v2.4.0 DLL hash below, plus our own Vulkan FSR 4 runtime behind
+   `temporal_upscaler = "fsr4"`, consuming the engine's temporal inputs.
+
+**Asset basis (binding):** only AMD FidelityFX SDK **v2.4.0** (FSR 4.1.2.4555)
+`signedbin/amd_fidelityfx_upscaler_dx12.dll`, sha256
+`aad4fccccb29084a655f9a4f9f613bd22c8c03fb4a0f8840148cc6543b4ccace` — the same file already pinned in
+the SDK's `rexglue_fidelityfx_prebuilt.cmake`. Never fsr4-vk's default SDK 2.3.0 / 4.1.1.2740 DLL:
+every hardcoded offset moved between those versions. Extraction must use the **dx12** DLL, because
+the vk DLL's blobs are compressed.
+
+**Licensing:** the `signedbin` DLLs are MIT-excepted in SDK 2.4.0's `license.md`, so assets
+extracted from the v2.4.0 DLL are AMD-MIT derivatives — user-supplied, runtime-loaded, never
+committed or packaged. fsr4-vk itself is **GPL-3.0-only**; none of its code is vendored into this
+MIT repository, and a user-built .so stays on the user's machine. The `justfile` packaging recipes
+(`package-installer`, `package-linux`) refuse to package `amd_fidelityfx_upscaler_vk.so` (and the
+`.dll` names in the Linux tarball) or any fsr4-vk `build/linux`, `build/windows`, or `assets/` tree
+found under `installer/staging/` or `dist/`.
+
+**TODO — fill in after the Track 4 runs:**
+
+- A/B table: `tools/upscaler_ab.sh` FSR4 1080p->4K vs the FSR 3.1 baseline above (title 36.08 dB /
+  edge 6.32) vs native 4K. _(placeholder — no FSR4-native-Linux runs yet)_
+- Jitter-sign rows: all four `temporal_jitter_flip` runs with `fsr4 = true` on native Linux (the
+  shipped sign was best of the four for FSR 4.1.2 under Proton, +1.5 to +5.8 dB). _(placeholder)_
+
 ## Limits and next steps
 
 - The title screen is a soft scene. Repeat the A/B in gameplay, which has hard static edges, once

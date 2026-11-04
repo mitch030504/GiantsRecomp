@@ -125,6 +125,9 @@ package-release: build-release
 # Windows installer with Inno Setup (ISCC.exe). Windows only -- see docs/releasing.md. Checks both
 # common Inno Setup 6 install locations (Program Files, from its official installer running
 # elevated, and the per-user AppData location winget can use instead).
+# The find guard refuses NVIDIA weights/DLLs and fsr4-vk artifacts in staging. AMD's own
+# hash-pinned signedbin upscaler DLLs at the staging root are the shipped Windows FSR 4.1.2
+# runtime (rexglue_fidelityfx_prebuilt.cmake), so they stay allowed via the -not -path exception.
 package-installer: build-release
     rm -rf installer/staging && \
     mkdir -p installer/staging && \
@@ -134,13 +137,15 @@ package-installer: build-release
     iscc="/c/Program Files (x86)/Inno Setup 6/ISCC.exe" && \
     [ -e "$iscc" ] || iscc="$USERPROFILE/AppData/Local/Programs/Inno Setup 6/ISCC.exe" && \
     [ -e "$iscc" ] || (echo "ISCC.exe not found -- install Inno Setup 6 (winget install JRSoftware.InnoSetup)" && exit 1) && \
-    ! find installer/staging -type f \( -name 'dlssnr*.bin' -o -name 'nvngx_dlssnr.dll' -o -name 'nvngx.dll' -o -name '_nvngx.dll' \) | grep -q . && \
+    ! find installer/staging -type f \( -name 'dlssnr*.bin' -o -name 'nvngx_dlssnr.dll' -o -name 'nvngx.dll' -o -name '_nvngx.dll' -o -name 'amd_fidelityfx_upscaler_vk.so' -o -name 'amd_fidelityfx_upscaler_vk.dll' -o -name 'amd_fidelityfx_upscaler_dx12.dll' -o -path '*/build/linux/*' -o -path '*/build/windows/*' -o -path '*/assets/*' \) -not -path 'installer/staging/amd_fidelityfx_upscaler_*.dll' | grep -q . && \
     "$iscc" installer/GiantsRecomp.iss && \
     echo "Installer built at installer/Output/GiantsRecompSetup.exe"
 
 # Linux counterpart of package-installer: a tarball with the game, its libraries (found through
 # the binary's $ORIGIN runpath) and linux-setup.sh, which puts the user's own game into rom/ and
 # writes giantsrecomp.toml. No giantsrecomp.toml is shipped, so the setup script's choices apply.
+# The find guard refuses NVIDIA weights/DLLs and any fsr4-vk artifact in the tarball: a user-built
+# amd_fidelityfx_upscaler_vk.* or an fsr4-vk build/linux, build/windows or assets/ tree.
 package-linux: build-release
     dist=dist/giantsrecomp-linux-amd64 && \
     rm -rf "$dist" && \
@@ -149,7 +154,7 @@ package-linux: build-release
     cp {{ sdk_lib_dir }}/*.so "$dist/" && \
     for extra in out/build/linux-amd64-release/libnvidia-ngx-dlss.so.* out/build/linux-amd64-release/*_license.* out/build/linux-amd64-release/*_source.tar.gz; do [ -e "$extra" ] && cp "$extra" "$dist/" || true; done && \
     cp installer/linux-setup.sh installer/70-portal-of-power.rules installer/settings_template.toml "$dist/" && \
-    ! find "$dist" -type f \( -name 'dlssnr*.bin' -o -name 'nvngx_dlssnr.dll' -o -name 'nvngx.dll' -o -name '_nvngx.dll' \) | grep -q . && \
+    ! find "$dist" -type f \( -name 'dlssnr*.bin' -o -name 'nvngx_dlssnr.dll' -o -name 'nvngx.dll' -o -name '_nvngx.dll' -o -name 'amd_fidelityfx_upscaler_vk.so' -o -name 'amd_fidelityfx_upscaler_vk.dll' -o -name 'amd_fidelityfx_upscaler_dx12.dll' -o -path '*/build/linux/*' -o -path '*/build/windows/*' -o -path '*/assets/*' \) | grep -q . && \
     tar -C dist -czf dist/giantsrecomp-linux-amd64.tar.gz giantsrecomp-linux-amd64 && \
     echo "Packaged dist/giantsrecomp-linux-amd64.tar.gz"
 

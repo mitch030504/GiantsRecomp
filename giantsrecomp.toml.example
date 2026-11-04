@@ -25,6 +25,9 @@ anisotropic_override = 5                  # texture filtering: 5 = 16x, 3 = 4x, 
                                            # needs the model and shaders under dlss5_amd_data_path)
 # dlss5_amd_data_path = ""               # folder that contains dlssnr-amd/ (the parent, not the
                                            # folder itself); empty = next to the executable
+# fsr4 = false                           # Linux/AMD: FSR 4.1.2 via a user-built amd_fidelityfx_upscaler_vk.so
+                                           # (from your own FidelityFX SDK v2.4.0 DLL; never shipped)
+# fsr4_data_path = ""                    # folder with that .so; empty = next to the executable
 
 ["UI"]
 # ui_scale = 1.5                          # ImGui overlay font/widget scale
