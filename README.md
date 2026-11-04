@@ -104,6 +104,8 @@ The easiest way to change settings is to press **F4** in-game. Everything is sav
 | `skip_intro` | Skips the Activision and Toys for Bob logo movies at startup. Default is `true`. |
 | `user_data_root` | Where saves, achievements, shader cache and figures go. Leave it empty to use `Documents\giantsrecomp`. |
 | `dlss5_layer` | **Linux, NVIDIA only.** Runs the picture through DLSS5VKLayer (DLSS 5). See [DLSS 5 on Linux](#dlss-5-on-linux-nvidia-experimental). Default is `false`. |
+| `dlss5_amd` | **Linux, AMD, development builds only.** Runs native DLSS 5 neural rendering on the pre-HUD scene, before the HUD is drawn. Separate from `temporal_upscaler` and `dlss5_layer`. Needs the exported small model and shaders in `dlss5_amd_data_path`; see [DLSS 5 NR on AMD](#dlss-5-nr-on-amd-experimental). Default is `false`. |
+| `dlss5_amd_data_path` | Folder that contains `dlssnr-amd/` (the parent, not `dlssnr-amd` itself). Empty means next to the executable. |
 | `vulkan_device` | **Vulkan only.** Picks which GPU to use, by index. `-1` (the default) chooses automatically. |
 
 You can also pass any setting as a command-line flag (like `--portal_mode software`), and that overrides the settings file. The one exception is `--game_data_root` (where `rom\` lives). It can only be a flag, and it already defaults to `rom` next to the executable.
@@ -116,6 +118,22 @@ On Linux with an NVIDIA GPU you can run the picture through NVIDIA's DLSS 5 neur
 2. Turn on **F4 → GPU → `dlss5_layer`** and press **Restart now**, or start the game with `--dlss5_layer=true`.
 
 The game's log says whether the layer was found. Without it, or without an NVIDIA GPU, the game runs normally. DLSS 5 works on the finished picture, after the game's own upscaling, so leave `present_effect` at `"bilinear"` or `"fsr"` unless you want both. With the Windows build under Proton, start the game with `VKLayer_DLSS5=1` in its environment instead.
+
+### DLSS 5 NR on AMD (experimental)
+
+On Linux with an RDNA4 AMD GPU (RX 9000 series), a development build compiled with
+`-DREXGLUE_ENABLE_DLSS5_AMD=ON` can run the native [DLSSNR-AMD](https://github.com/Overclockers/DLSSNR-AMD)
+runtime (MIT) on the pre-HUD 1000×600 scene. It is evaluated at 1920×1080 and the HUD is drawn
+afterwards, so it is not the same thing as the NVIDIA layer above.
+
+The NVIDIA model weights are not included. Extract `dlssnr-small.bin` from your own
+`nvngx_dlssnr.dll` with the upstream `model-tools/extract_model.sh`, put it in
+`<dlss5_amd_data_path>/dlssnr-amd/` next to the `shaders/` tree produced by the build, and start
+the game with `--dlss5_amd=true --dlss5_amd_data_path=/path/to/that/folder`. The model must be the
+310.9.16 small pack (255 entries, 113,917,248 bytes); the game validates it and refuses anything
+else. The feature is experimental, Linux/AMD only, and appears in F4/F9 with an explicit inactive
+reason when a prerequisite is missing. It is not a substitute for DLSS SR and does not change the
+game's authored 1000×600 scene resolution.
 
 ---
 

@@ -100,8 +100,11 @@ cross-compiled Windows build (`tools/windows_cross.sh`).
   in each scene before interpreting image-quality numbers (see the d4r results below).
 - Native NGX is only verified to fall back cleanly here (no RTX card): its jitter sign and image quality
   need checking on an RTX GPU with the same A/B. The experimental Proton/d4r test below runs on AMD.
-  DLSS 5 on Linux goes through DLSS5VKLayer instead
-  (see the README).
+  DLSS 5 has two separate Linux paths: the NVIDIA DLSS5VKLayer on the finished picture, and the
+  native DLSSNR-AMD integration (development build, RDNA4) on the pre-HUD scene. The native runtime
+  has been proved on a one-shot captured frame (real engine motion/depth, 1920x1080, small model)
+  and constructs in-engine; the live composition seam and HUD bypass are not wired yet. See the
+  README.
 
 ## d4r under Proton (RX 9070 XT)
 

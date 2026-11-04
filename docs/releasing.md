@@ -28,6 +28,12 @@ shared libraries, `giantsrecomp_xexcheck`, `installer/linux-setup.sh` (the Linux
 installer: copies or extracts the user's game into `rom/` after the version check, and writes
 `giantsrecomp.toml`), and the udev rule for a real portal. No game data and no settings file.
 
+DLSS 5 NR (AMD) is a development build option (`-DREXGLUE_ENABLE_DLSS5_AMD=ON`). Its NVIDIA model
+weights (`dlssnr-small.bin`, `dlssnr.bin`) and the source `nvngx_dlssnr.dll` are never committed,
+staged or packaged; both packaging recipes refuse to produce an artifact that contains them. The
+MIT runtime notices and shader tree may ship, but the user extracts the model into their own
+`dlss5_amd_data_path`.
+
 The pitch-preserving output processor uses the pinned, replaceable SoundTouch 2.4.1 shared
 library. Packages include `SoundTouch.dll` / `libSoundTouch.so`, `soundtouch_license.txt`, and the
 unmodified `soundtouch_source.tar.gz`. Keep all three together when packaging or redistributing.

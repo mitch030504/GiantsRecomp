@@ -12,6 +12,7 @@
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/system.h>
+#include <rex/ui/dlss5_amd.h>
 #include <rex/ui/windowed_app_context.h>
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/keybinds.h>
@@ -180,6 +181,35 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
     CvarCheckbox("Letterbox non-native aspect", "present_letterbox");
     CvarCheckbox("Output dithering", "present_dither");
 #ifdef __linux__
+    ImGui::Separator();
+    CvarCheckbox("DLSS 5 NR (AMD native) [restart]", "dlss5_amd");
+    ImGui::TextDisabled("Pre-HUD scene NR; separate from the upscaler above and the NVIDIA layer below.");
+    {
+      const rex::ui::dlss5_amd::Status& nr = rex::ui::dlss5_amd::GetStatus();
+      switch (nr.state) {
+        case rex::ui::dlss5_amd::State::kActive:
+          ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
+                             "DLSS 5 NR: active on %s (%u weights, %llu frames)",
+                             nr.gpu.c_str(), nr.model_entries,
+                             static_cast<unsigned long long>(nr.recorded_frames));
+          break;
+        case rex::ui::dlss5_amd::State::kReady:
+          ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f),
+                             "DLSS 5 NR: ready (%u weights, no frames recorded yet)",
+                             nr.model_entries);
+          break;
+        case rex::ui::dlss5_amd::State::kInactive:
+          ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "DLSS 5 NR: inactive - %s",
+                             nr.reason.c_str());
+          break;
+        case rex::ui::dlss5_amd::State::kOff:
+          ImGui::TextDisabled("DLSS 5 NR: off");
+          break;
+      }
+      if (!nr.data_root.empty()) {
+        ImGui::TextDisabled("Data: %s", nr.data_root.c_str());
+      }
+    }
     CvarCheckbox("DLSS 5 layer (NVIDIA only)", "dlss5_layer");
 #endif
   }
