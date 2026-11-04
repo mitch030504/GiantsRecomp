@@ -242,3 +242,20 @@ if(Python3_Interpreter_FOUND)
         message(STATUS "numpy not found; motion_guide_analysis test not registered")
     endif()
 endif()
+
+# Track 1 transfer-fit analyzer: pure-Python gate over the fit_transfer.py report
+# (numpy only). Same registration guard, so a machine without the analysis
+# dependency can still configure and build the game.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import numpy"
+                    RESULT_VARIABLE GIANTSRECOMP_NUMPY_RESULT
+                    OUTPUT_QUIET ERROR_QUIET)
+    if(GIANTSRECOMP_NUMPY_RESULT EQUAL 0)
+        add_test(NAME transfer_fit_analysis
+                 COMMAND "${Python3_EXECUTABLE}"
+                         "${CMAKE_CURRENT_SOURCE_DIR}/tests/transfer_fit_analysis_test.py")
+    else()
+        message(STATUS "numpy not found; transfer_fit_analysis test not registered")
+    endif()
+endif()
