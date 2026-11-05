@@ -245,9 +245,6 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
           rex::cvar::GetFlagByName("present_effect") == "fsr3" &&
           rex::cvar::GetFlagByName("temporal_upscaler") == "fsr";
       CvarCheckbox("Use FSR 4 provider [restart]", "fsr4");
-      if (ImGui::InputText("Provider folder [restart]", fsr4_path_, sizeof(fsr4_path_))) {
-        rex::cvar::SetFlagByName("fsr4_data_path", fsr4_path_);
-      }
       if (ImGui::Button("Use FSR 4 and restart")) {
         rex::cvar::SetFlagByName("present_effect", "fsr3");
         rex::cvar::SetFlagByName("temporal_upscaler", "fsr");
@@ -259,8 +256,6 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
                            "Needs Present effect = fsr3 and Upscaler = fsr; the button sets both.");
       }
-      ImGui::TextDisabled(
-          "Needs a user-built amd_fidelityfx_upscaler_vk.so and fsr4-assets; never shipped.");
       const auto& status = rex::ui::fsr4::GetStatus();
       switch (status.state) {
         case rex::ui::fsr4::State::kActive:
@@ -277,6 +272,18 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
           ImGui::TextDisabled("FSR 4: off (FSR 3.1 will be used)");
           break;
       }
+      ImGui::TextDisabled(
+          "The provider and fsr4-assets are found next to the executable; no folder is needed.");
+      if (ImGui::TreeNodeEx("Custom provider folder",
+                            status.state == rex::ui::fsr4::State::kInactive
+                                ? ImGuiTreeNodeFlags_DefaultOpen
+                                : ImGuiTreeNodeFlags_None)) {
+        ImGui::TextDisabled("Optional. Empty = next to the executable.");
+        if (ImGui::InputText("##fsr4_provider_folder", fsr4_path_, sizeof(fsr4_path_))) {
+          rex::cvar::SetFlagByName("fsr4_data_path", fsr4_path_);
+        }
+        ImGui::TreePop();
+      }
     }
 #endif
     CvarCheckbox("Ultrawide FOV", "ultrawide_fov");
@@ -286,54 +293,59 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
     CvarCheckbox("Output dithering", "present_dither");
 #ifdef __linux__
     ImGui::Separator();
-    CvarCheckbox("DLSS 5 NR (AMD native) [restart]", "dlss5_amd");
-    ImGui::TextDisabled("Pre-HUD scene NR; separate from the upscaler above and the NVIDIA layer below.");
-    {
-      const rex::ui::dlss5_amd::Status& nr = rex::ui::dlss5_amd::GetStatus();
-      switch (nr.state) {
-        case rex::ui::dlss5_amd::State::kActive:
-          ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
-                             "DLSS 5 NR: active on %s (%u weights, %llu frames)",
-                             nr.gpu.c_str(), nr.model_entries,
-                             static_cast<unsigned long long>(nr.recorded_frames));
-          break;
-        case rex::ui::dlss5_amd::State::kReady:
-          ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f),
-                             "DLSS 5 NR: ready (%u weights, no frames recorded yet)",
-                             nr.model_entries);
-          break;
-        case rex::ui::dlss5_amd::State::kInactive:
-          ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "DLSS 5 NR: inactive - %s",
-                             nr.reason.c_str());
-          break;
-        case rex::ui::dlss5_amd::State::kOff:
-          ImGui::TextDisabled("DLSS 5 NR: off");
-          break;
-      }
-      // Live mode (dlss5_amd_mode=3, development): one NR frame per guest frame at the
-      // composition seam. The state above only says whether a frame has been recorded, so
-      // this line names the live-specific blocker and the per-frame GPU time when running.
-      // motion_guide is the one prerequisite the app can still turn on for the user.
-      if (rex::cvar::Query<int32_t>("dlss5_amd_mode") == 3) {
-        if (nr.state == rex::ui::dlss5_amd::State::kActive) {
-          ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
-                             "Live NR: on, %llu frames, last %.2f ms GPU",
-                             static_cast<unsigned long long>(nr.recorded_frames),
-                             double(nr.average_gpu_ms));
-        } else if (nr.state == rex::ui::dlss5_amd::State::kOff) {
-          ImGui::TextDisabled("Live NR: off - dlss5_amd is off");
-        } else if (nr.state == rex::ui::dlss5_amd::State::kInactive) {
-          ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Live NR: off - %s",
-                             nr.reason.c_str());
-        } else if (!rex::cvar::Query<bool>("motion_guide")) {
-          ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                             "Live NR: off - motion_guide is off");
-        } else {
-          ImGui::TextDisabled("Live NR: off - no frame recorded yet (see the log)");
+    if (ImGui::CollapsingHeader("DLSS 5 NR (experimental, AMD)")) {
+      CvarCheckbox("Enable DLSS 5 NR [restart]", "dlss5_amd");
+      ImGui::TextDisabled(
+          "Pre-HUD scene NR; separate from the upscaler above and the NVIDIA layer below.");
+      if (rex::cvar::GetFlagByName("dlss5_amd") != "true") {
+        ImGui::TextDisabled("DLSS 5 NR: off (needs dlssnr-amd/ when enabled)");
+      } else {
+        const rex::ui::dlss5_amd::Status& nr = rex::ui::dlss5_amd::GetStatus();
+        switch (nr.state) {
+          case rex::ui::dlss5_amd::State::kActive:
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
+                               "DLSS 5 NR: active on %s (%u weights, %llu frames)",
+                               nr.gpu.c_str(), nr.model_entries,
+                               static_cast<unsigned long long>(nr.recorded_frames));
+            break;
+          case rex::ui::dlss5_amd::State::kReady:
+            ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f),
+                               "DLSS 5 NR: ready (%u weights, no frames recorded yet)",
+                               nr.model_entries);
+            break;
+          case rex::ui::dlss5_amd::State::kInactive:
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "DLSS 5 NR: inactive - %s",
+                               nr.reason.c_str());
+            break;
+          case rex::ui::dlss5_amd::State::kOff:
+            ImGui::TextDisabled("DLSS 5 NR: off");
+            break;
         }
-      }
-      if (!nr.data_root.empty()) {
-        ImGui::TextDisabled("Data: %s", nr.data_root.c_str());
+        // Live mode (dlss5_amd_mode=3, development): one NR frame per guest frame at the
+        // composition seam. The state above only says whether a frame has been recorded, so
+        // this line names the live-specific blocker and the per-frame GPU time when running.
+        // motion_guide is the one prerequisite the app can still turn on for the user.
+        if (rex::cvar::Query<int32_t>("dlss5_amd_mode") == 3) {
+          if (nr.state == rex::ui::dlss5_amd::State::kActive) {
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
+                               "Live NR: on, %llu frames, last %.2f ms GPU",
+                               static_cast<unsigned long long>(nr.recorded_frames),
+                               double(nr.average_gpu_ms));
+          } else if (nr.state == rex::ui::dlss5_amd::State::kOff) {
+            ImGui::TextDisabled("Live NR: off - dlss5_amd is off");
+          } else if (nr.state == rex::ui::dlss5_amd::State::kInactive) {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Live NR: off - %s",
+                               nr.reason.c_str());
+          } else if (!rex::cvar::Query<bool>("motion_guide")) {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                               "Live NR: off - motion_guide is off");
+          } else {
+            ImGui::TextDisabled("Live NR: off - no frame recorded yet (see the log)");
+          }
+        }
+        if (!nr.data_root.empty()) {
+          ImGui::TextDisabled("Data: %s", nr.data_root.c_str());
+        }
       }
     }
     CvarCheckbox("DLSS 5 layer (NVIDIA only)", "dlss5_layer");

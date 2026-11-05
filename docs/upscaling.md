@@ -108,8 +108,9 @@ next to the executable, or point `fsr4_data_path` at its folder:
 
 In **F9 → Graphics**, the **FSR 4 (Linux/AMD)** section is always listed. *Use FSR 4 and restart*
 sets Present effect = `fsr3`, Upscaler = `fsr`, turns the provider on and saves the folder in one
-step; the section also shows the loaded provider or the reason it is unavailable. The equivalent
-command line is above.
+step; the section also shows the loaded provider or the reason it is unavailable. The owner's
+private game-included Linux archive places the provider next to the executable, so *Custom provider
+folder* can stay empty. The equivalent command line is above.
 
 The folder must contain the provider `.so` under either name (`amd_fidelityfx_upscaler_vk.so` or
 `libamd_fidelityfx_upscaler_vk.so`) and its `fsr4-assets/` tree (1,778 SPIR-V modules and
@@ -139,9 +140,11 @@ the vk DLL's blobs are compressed.
 
 **Licensing:** the `signedbin` DLLs are MIT-excepted in SDK 2.4.0's `license.md`, so assets
 extracted from the v2.4.0 DLL are AMD-MIT derivatives — user-supplied, runtime-loaded, never
-committed or packaged. fsr4-vk itself is **GPL-3.0-only**; none of its code is vendored into this
-MIT repository, and a user-built .so stays on the user's machine. The `justfile` packaging recipes
-(`package-installer`, `package-linux`) refuse to package `amd_fidelityfx_upscaler_vk.so` /
+committed to this repository or included in a public release. The owner's private game-included
+archive bundles the provider next to the executable, since that archive is never distributed.
+fsr4-vk itself is **GPL-3.0-only**; none of its code is vendored into this MIT repository, and a
+user-built .so stays on the user's machine. The `justfile` packaging recipes (`package-installer`,
+`package-linux`) still refuse to package `amd_fidelityfx_upscaler_vk.so` /
 `libamd_fidelityfx_upscaler_vk.so` / the loader `.so` (and the `.dll` names in the Linux tarball),
 or any `fsr4-assets/` tree, or any fsr4-vk `build/linux`, `build/windows`, or `assets/` tree found
 under `installer/staging/` or `dist/`.
