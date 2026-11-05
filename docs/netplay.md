@@ -63,9 +63,12 @@ The room code is logged and shown in F8/F9. Client:
 giantsrecompiled --netplay_lobby=<relay-host>:32200 --netplay_room=A1B2C3D4
 ```
 
-Settings: `netplay_lobby` (`host:port`, empty = direct), `netplay_relay` (`auto` or `off`), and
-`netplay_room` (client only, eight hex characters). Direct mode is unchanged when `netplay_lobby`
-is empty. The relay removes the NAT problem, **not** the trust problem: ENet still has no
+Settings: `netplay_lobby` accepts one or more `host[:port]` candidates separated by `;`, tried in
+order. An unreachable candidate costs 1.5 s before the next, so the shipped default
+`192.168.8.2:32200;188.91.1.230:32200` uses the server's LAN address on the same network and the
+external address everywhere else. `netplay_relay` is `auto` or `off`; `netplay_room` is client-only,
+eight hex characters. Set `netplay_relay = "off"` or clear `netplay_lobby` for a direct-only
+session. The relay removes the NAT problem, **not** the trust problem: ENet still has no
 authentication or encryption, so only play with people you trust, and do not port-forward 24872
 directly. The relay binds each room to two endpoints, rate-limits per source, and expires idle
 rooms after 30 s.
