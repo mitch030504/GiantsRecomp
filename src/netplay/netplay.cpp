@@ -27,7 +27,9 @@
 #include "netplay/lockstep.h"
 #include "netplay/figure_sync.h"
 #include "netplay/save_snapshot.h"
+#include "netplay/state_digest.h"
 #include "portal/figure_file.h"
+#include "portal/figure_stats.h"
 #include "portal/software/software_portal.h"
 #include "portal_rex/portal_rex.h"
 #include "xex_verify.h"
@@ -54,6 +56,10 @@ REXCVAR_DEFINE_INT32(netplay_hash_start_read, 600, "Netplay", "Experimental: fir
     .range(0, 1000000).lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_STRING(netplay_hash_skip_pages, "", "Netplay", "Experimental: comma-separated hex 4 KiB page addresses to exclude from memory hashing, e.g. 8267D000,B5F2D000. Host-written bytes (paths, pointers, leftover bytes in reused allocations) land on a few stable pages and otherwise false-positive; find them with state_dump_address.")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_BOOL(netplay_state_digest, true, "Netplay", "Use the logical figure-state digest for desync checks instead of whole-memory hashing.")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_INT32(netplay_state_digest_interval, 300, "Netplay", "Controller reads between logical-state digests; 0 disables.")
+    .range(0, 1000000).lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_STRING(netplay_test_client_figure, "", "Netplay", "Test only: client places a blank figure of this Skylander in slot 1 at netplay_test_client_figure_read.")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_INT32(netplay_test_client_figure_read, 300, "Netplay", "Test only: read index at which netplay_test_client_figure is placed. Must be after boot: a figure placed while the game is still querying the portal at startup is rejected with 'toy has a problem'.")
@@ -68,7 +74,7 @@ using rex::X_STATUS;
 using skylanders::portal::FigureData;
 constexpr auto kRemoteDevice = rex::input::DeviceId(0x47524E4554504C59ull);
 // These affect guest-visible behavior. Rendering/presentation settings remain local.
-constexpr const char* kSettings[] = {"user_language", "skip_intro", "netplay_hash_interval", "netplay_hash_start_read", "netplay_hash_skip_pages", "bot_skip_movies", "audio_maxqframes"};
+constexpr const char* kSettings[] = {"user_language", "skip_intro", "netplay_hash_interval", "netplay_hash_start_read", "netplay_hash_skip_pages", "netplay_state_digest", "netplay_state_digest_interval", "bot_skip_movies", "audio_maxqframes"};
 struct PendingFigure { PortalEvent event; std::optional<fs::path> source; };
 struct State {
   Session session;
@@ -207,6 +213,26 @@ uint64_t MemoryHash() {
     addr = end;
   }
   return hash;
+}
+
+// The whole-memory hash cannot be compared across peers (host paths, pointers and reused bytes are
+// host-specific). This digest reads only portal state both peers share: presence, toy identity,
+// level and gold, in a fixed slot order. It is the default desync check; MemoryHash stays for
+// offline diagnosis.
+uint64_t FigureStateDigest() {
+  StateDigest digest;
+  auto* portal = skylanders::GetSoftwarePortal();
+  for (int slot = 0; slot < skylanders::portal::kMaxFigures; ++slot) {
+    const auto figure = portal ? portal->Figure(slot) : std::nullopt;
+    digest.AddU64(0x100000 + uint64_t(slot), figure ? 1 : 0);
+    if (!figure) continue;
+    digest.AddU64(0x200000 + uint64_t(slot), skylanders::portal::ReadFigureId(*figure));
+    digest.AddU64(0x300000 + uint64_t(slot), skylanders::portal::ReadFigureVariant(*figure));
+    const auto stats = skylanders::portal::ParseFigureStats(*figure);
+    digest.AddU64(0x400000 + uint64_t(slot), stats ? stats->level : 0);
+    digest.AddU64(0x500000 + uint64_t(slot), stats ? stats->gold : 0);
+  }
+  return digest.Finish();
 }
 
 class RemoteDriver : public rex::input::InputDriver {
@@ -348,7 +374,8 @@ bool Configure(const fs::path& user_root, std::string& error) {
     if (!Set(name, value, error)) return false;
   for (const char* name : {"netplay_host", "netplay_connect", "netplay_port", "netplay_delay",
                            "netplay_timeout_seconds", "netplay_lobby", "netplay_room",
-                           "netplay_relay"})
+                           "netplay_relay", "netplay_state_digest",
+                           "netplay_state_digest_interval"})
     if (!rex::cvar::LockFlag(name)) { error = "Cannot lock session options"; return false; }
   if (rex::cvar::GetFlagByName("portal_figures_dir").empty() &&
       !Set("portal_figures_dir", giantsrecomp::Utf8(user_root / "figures").c_str(), error)) return false;
@@ -478,7 +505,7 @@ void Install(rex::input::InputSystem* input) {
        "video_mode_width", "video_mode_height", "video_mode_refresh_rate", "frame_rate_limit",
        "present_effect", "portal_mode", "user_language", "skip_intro", "netplay_hash_interval",
        "netplay_hash_start_read", "netplay_hash_skip_pages", "netplay_lobby", "netplay_room",
-       "netplay_relay"}) {
+       "netplay_relay", "netplay_state_digest", "netplay_state_digest_interval"}) {
     if (!rex::cvar::LockFlag(name)) Pause(std::string("Cannot lock required setting: ") + name);
   }
   input->AddDriver(std::make_unique<RemoteDriver>());
@@ -545,9 +572,15 @@ rex::X_RESULT FilterState(uint32_t user, X_INPUT_STATE* pad) {
       }
       state.pending.clear();
     }
+    const uint32_t start = uint32_t(REXCVAR_GET(netplay_hash_start_read));
     const auto interval = state.hash_interval;
-    if (interval > 0 && index >= uint32_t(REXCVAR_GET(netplay_hash_start_read)) &&
-        index % uint32_t(interval) == 0) local.hash = MemoryHash();
+    const uint32_t digest_interval = uint32_t(REXCVAR_GET(netplay_state_digest_interval));
+    if (REXCVAR_GET(netplay_state_digest) && digest_interval > 0 && index >= start &&
+        index % digest_interval == 0) {
+      local.hash = FigureStateDigest();
+    } else if (interval > 0 && index >= start && index % uint32_t(interval) == 0) {
+      local.hash = MemoryHash();
+    }
     std::string error;
     if (!state.lockstep->Advance(local, state.players, error)) Pause(error);
     // Only host-authorized portal events mutate guest state.
