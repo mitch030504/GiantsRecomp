@@ -60,7 +60,9 @@ public releases ship none. The included `run.sh` starts the Linux build, and the
 The owner's private Linux archive also places the FSR 4 provider (`libamd_fidelityfx_upscaler_vk.so`
 plus `fsr4-assets/`) next to the executable and enables `fsr4`/`present_effect = "fsr3"` in the
 toml. That is acceptable only because the archive is never distributed. Public packages must not
-carry it: the provider is user-supplied and the `justfile` guards refuse it.
+carry it: the provider is user-supplied and the `justfile` guards refuse it. The same archive
+bundles the DLSS 5 NR model/shaders as `dlssnr-amd/` and enables live NR; NVIDIA's weights are
+likewise private-only and excluded from public packages.
 
 Memory matters more than the dictionary for a 7.7 GB game folder: `-md=1024m -ms=on -mmt=16` can
 exceed 24 GB and be OOM-killed on a 46 GB machine with other desktop apps running.

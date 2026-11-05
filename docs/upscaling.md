@@ -208,6 +208,11 @@ remaining prerequisites are the same as above: the validated small model and sha
 tab shows whether live NR is on, the recorded-frame count and the last frame's GPU time, or the
 first missing prerequisite when it is off.
 
+The source release never ships NVIDIA's model. The owner's private game-included Linux archive
+bundles the pinned model and shaders as `dlssnr-amd/` next to the executable and sets
+`dlss5_amd = true` / `dlss5_amd_mode = 3`, so live NR is on by default there; uncheck the F9
+checkbox (or set `dlss5_amd = false`) to turn it off. Never redistribute that archive.
+
 Measured on an RX 9070 XT at 1920×1080 with RADV: **4.8 ms mean GPU per guest frame** (p50 4.6 ms,
 max 10.5 ms over 2384 frames), no skipped frames, with guide history consumed from the second
 frame. The live identity control (the same pre-upscaled scene, no network) stays within 1–2
