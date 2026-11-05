@@ -106,9 +106,10 @@ next to the executable, or point `fsr4_data_path` at its folder:
 --fsr4=true --temporal_upscaler=fsr --fsr4_data_path=/path/to/provider
 ```
 
-In **F9 → Graphics**, choose Present effect = `fsr3` and Upscaler = `fsr`; the FSR 4 provider
-checkbox, the provider-folder field and a status line (loaded, or the reason it is unavailable)
-appear below the quality selector. Applying the folder restarts the game.
+In **F9 → Graphics**, the **FSR 4 (Linux/AMD)** section is always listed. *Use FSR 4 and restart*
+sets Present effect = `fsr3`, Upscaler = `fsr`, turns the provider on and saves the folder in one
+step; the section also shows the loaded provider or the reason it is unavailable. The equivalent
+command line is above.
 
 The folder must contain the provider `.so` under either name (`amd_fidelityfx_upscaler_vk.so` or
 `libamd_fidelityfx_upscaler_vk.so`) and its `fsr4-assets/` tree (1,778 SPIR-V modules and

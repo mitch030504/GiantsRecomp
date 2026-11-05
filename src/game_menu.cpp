@@ -236,36 +236,49 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
       CvarCombo("Upscaler [restart]", "temporal_upscaler", {"fsr", "xess", "dlss"});
       CvarCombo("Upscale quality [restart]", "present_fsr_quality_mode",
                 {"auto", "nativeaa", "quality", "balanced", "performance", "ultra_performance"});
-#ifdef __linux__
-      if (rex::cvar::GetFlagByName("temporal_upscaler") == "fsr") {
-        ImGui::Separator();
-        CvarCheckbox("FSR 4 provider [restart]", "fsr4");
-        ImGui::InputText("Provider folder [restart]", fsr4_path_, sizeof(fsr4_path_));
-        if (ImGui::Button("Apply FSR 4 settings (restart)")) {
-          rex::cvar::SetFlagByName("fsr4_data_path", fsr4_path_);
-          SaveAndRestart();
-        }
-        ImGui::TextDisabled(
-            "Needs a user-built amd_fidelityfx_upscaler_vk.so and fsr4-assets; never shipped.");
-        const auto& status = rex::ui::fsr4::GetStatus();
-        switch (status.state) {
-          case rex::ui::fsr4::State::kActive:
-          case rex::ui::fsr4::State::kReady:
-            ImGui::TextColored(
-                ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "FSR 4: provider %s",
-                status.library_path.empty() ? "ready" : status.library_path.c_str());
-            break;
-          case rex::ui::fsr4::State::kInactive:
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "FSR 4 unavailable: %s",
-                               status.reason.c_str());
-            break;
-          default:
-            ImGui::TextDisabled("FSR 4: off (FSR 3.1 will be used)");
-            break;
-        }
-      }
-#endif
     }
+#ifdef __linux__
+    // FSR 4 is a separate provider switch, not a temporal_upscaler value, so list it
+    // unconditionally: hiding it behind present_effect made it undiscoverable.
+    if (ImGui::CollapsingHeader("FSR 4 (Linux/AMD)", ImGuiTreeNodeFlags_DefaultOpen)) {
+      const bool fsr_path_selected =
+          rex::cvar::GetFlagByName("present_effect") == "fsr3" &&
+          rex::cvar::GetFlagByName("temporal_upscaler") == "fsr";
+      CvarCheckbox("Use FSR 4 provider [restart]", "fsr4");
+      if (ImGui::InputText("Provider folder [restart]", fsr4_path_, sizeof(fsr4_path_))) {
+        rex::cvar::SetFlagByName("fsr4_data_path", fsr4_path_);
+      }
+      if (ImGui::Button("Use FSR 4 and restart")) {
+        rex::cvar::SetFlagByName("present_effect", "fsr3");
+        rex::cvar::SetFlagByName("temporal_upscaler", "fsr");
+        rex::cvar::SetFlagByName("fsr4", "true");
+        rex::cvar::SetFlagByName("fsr4_data_path", fsr4_path_);
+        SaveAndRestart();
+      }
+      if (!fsr_path_selected) {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                           "Needs Present effect = fsr3 and Upscaler = fsr; the button sets both.");
+      }
+      ImGui::TextDisabled(
+          "Needs a user-built amd_fidelityfx_upscaler_vk.so and fsr4-assets; never shipped.");
+      const auto& status = rex::ui::fsr4::GetStatus();
+      switch (status.state) {
+        case rex::ui::fsr4::State::kActive:
+        case rex::ui::fsr4::State::kReady:
+          ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "FSR 4: provider %s",
+                             status.library_path.empty() ? "ready"
+                                                         : status.library_path.c_str());
+          break;
+        case rex::ui::fsr4::State::kInactive:
+          ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "FSR 4 unavailable: %s",
+                             status.reason.c_str());
+          break;
+        default:
+          ImGui::TextDisabled("FSR 4: off (FSR 3.1 will be used)");
+          break;
+      }
+    }
+#endif
     CvarCheckbox("Ultrawide FOV", "ultrawide_fov");
     CvarCheckbox("Ultrawide HUD", "ultrawide_hud");
     CvarIntSlider("Anisotropic filtering (0 = off)", "anisotropic_override", 0, 5);
@@ -494,6 +507,7 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
 void RegisterGameMenu(rex::ui::ImGuiDrawer* drawer, rex::ui::Window* window,
                       rex::ui::WindowedAppContext* context,
                       const std::filesystem::path& config_path) {
+  REXLOG_INFO("Game menu config: {}", config_path.filename().string());
   static std::unique_ptr<GameMenuDialog> menu;  // UI thread only
   rex::ui::RegisterBind("bind_game_menu", "F9",
                         "Toggle the game menu (graphics, multiplayer, controls, portal)",

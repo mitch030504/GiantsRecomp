@@ -219,6 +219,9 @@ class GiantsrecompApp : public rex::ReXApp {
     // entry for it.
     if (paths.game_data_root.empty()) paths.game_data_root = "rom";
     game_data_root_ = paths.game_data_root;
+    // OnCreateDialogs (which registers the F9 menu) runs during SetupPresentation, and
+    // OnFinalizePaths runs only after that, so the menu must capture the path here.
+    menu_config_path_ = paths.config_path;
   }
 
   void OnPostInitLogging() override {
