@@ -39,6 +39,30 @@ library. Packages include `SoundTouch.dll` / `libSoundTouch.so`, `soundtouch_lic
 unmodified `soundtouch_source.tar.gz`. Keep all three together when packaging or redistributing.
 The source archive is fetched from the official Codeberg release with a verified SHA-256.
 
+### Optional portable 7z with your own game data
+
+For local use only, a self-contained archive can include the extracted `rom/` next to the game:
+
+```sh
+# Stage the platform build, then hardlink your own extracted disc in:
+cp -al rom dist/GiantsRecomp-Linux-x64/rom
+cd dist
+7z a -t7z -mx=9 -m0=lzma2 -md=1024m -mfb=273 -ms=on -mmt=on \
+  GiantsRecomp-Linux-x64.7z GiantsRecomp-Linux-x64
+```
+
+The same layout works for `GiantsRecomp-Windows-x64`. The Linux staging should be stripped first
+(`strip --strip-unneeded` on the game and engine libraries) for a much smaller archive. **Never
+commit, upload, or share an archive that contains `rom/`**: the game data is copyrighted and the
+public releases ship none. The included `run.sh` starts the Linux build, and the active
+`giantsrecomp.toml` carries the relay defaults.
+
+Memory matters more than the dictionary for a 7.7 GB game folder: `-md=1024m -ms=on -mmt=16` can
+exceed 24 GB and be OOM-killed on a 46 GB machine with other desktop apps running.
+`-md=256m -ms=off -mmt=6` still produces one archive at a small ratio cost and stays under ~1 GB of
+7z RSS; use that on a busy machine. Write the output somewhere on the large disk, not a tmpfs `/tmp`
+(a multi-GB archive fills a 24 GB `/tmp` quickly).
+
 ## Before publishing, verify
 
 - Fresh, clean Windows VM (no Visual Studio/CMake/Ninja installed) — install with a real ISO, and
