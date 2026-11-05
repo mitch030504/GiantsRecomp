@@ -22,6 +22,9 @@
 #include <rex/ui/ui_event.h>
 #include <rex/ui/window.h>
 #include <rex/ui/window_listener.h>
+#ifdef __linux__
+#include <rex/ui/fsr4.h>
+#endif
 
 #include "netplay/netplay.h"
 #include "portal_rex/portal_rex.h"
@@ -42,6 +45,10 @@ REXCVAR_DECLARE(int32_t, netplay_timeout_seconds);
 REXCVAR_DECLARE(std::string, netplay_lobby);
 REXCVAR_DECLARE(std::string, netplay_room);
 REXCVAR_DECLARE(std::string, netplay_relay);
+#ifdef __linux__
+REXCVAR_DECLARE(bool, fsr4);
+REXCVAR_DECLARE(std::string, fsr4_data_path);
+#endif
 
 namespace giantsrecomp::gamemenu {
 namespace {
@@ -122,6 +129,9 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
     std::snprintf(timeout_, sizeof(timeout_), "%d", int(REXCVAR_GET(netplay_timeout_seconds)));
     std::snprintf(lobby_addr_, sizeof(lobby_addr_), "%s", REXCVAR_GET(netplay_lobby).c_str());
     std::snprintf(room_code_, sizeof(room_code_), "%s", REXCVAR_GET(netplay_room).c_str());
+#ifdef __linux__
+    std::snprintf(fsr4_path_, sizeof(fsr4_path_), "%s", REXCVAR_GET(fsr4_data_path).c_str());
+#endif
   }
 
   ~GameMenuDialog() override { StopCapture(); }
@@ -226,6 +236,35 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
       CvarCombo("Upscaler [restart]", "temporal_upscaler", {"fsr", "xess", "dlss"});
       CvarCombo("Upscale quality [restart]", "present_fsr_quality_mode",
                 {"auto", "nativeaa", "quality", "balanced", "performance", "ultra_performance"});
+#ifdef __linux__
+      if (rex::cvar::GetFlagByName("temporal_upscaler") == "fsr") {
+        ImGui::Separator();
+        CvarCheckbox("FSR 4 provider [restart]", "fsr4");
+        ImGui::InputText("Provider folder [restart]", fsr4_path_, sizeof(fsr4_path_));
+        if (ImGui::Button("Apply FSR 4 settings (restart)")) {
+          rex::cvar::SetFlagByName("fsr4_data_path", fsr4_path_);
+          SaveAndRestart();
+        }
+        ImGui::TextDisabled(
+            "Needs a user-built amd_fidelityfx_upscaler_vk.so and fsr4-assets; never shipped.");
+        const auto& status = rex::ui::fsr4::GetStatus();
+        switch (status.state) {
+          case rex::ui::fsr4::State::kActive:
+          case rex::ui::fsr4::State::kReady:
+            ImGui::TextColored(
+                ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "FSR 4: provider %s",
+                status.library_path.empty() ? "ready" : status.library_path.c_str());
+            break;
+          case rex::ui::fsr4::State::kInactive:
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "FSR 4 unavailable: %s",
+                               status.reason.c_str());
+            break;
+          default:
+            ImGui::TextDisabled("FSR 4: off (FSR 3.1 will be used)");
+            break;
+        }
+      }
+#endif
     }
     CvarCheckbox("Ultrawide FOV", "ultrawide_fov");
     CvarCheckbox("Ultrawide HUD", "ultrawide_hud");
@@ -445,6 +484,9 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
   char timeout_[8]{};
   char lobby_addr_[96]{};
   char room_code_[16]{};
+#ifdef __linux__
+  char fsr4_path_[512]{};
+#endif
 };
 
 }  // namespace
