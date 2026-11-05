@@ -135,6 +135,10 @@ else. The feature is experimental, Linux/AMD only, and appears in F4/F9 with an 
 reason when a prerequisite is missing. It is not a substitute for DLSS SR and does not change the
 game's authored 1000×600 scene resolution.
 
+Development builds can also run it live on every guest frame with `--dlss5_amd_mode=3`; the
+motion guide is then enabled automatically. The flags and the measured cost are in
+[docs/upscaling.md](docs/upscaling.md#live-neural-rendering-development).
+
 ---
 
 ## Something not working?

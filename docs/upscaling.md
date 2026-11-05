@@ -130,6 +130,47 @@ found under `installer/staging/` or `dist/`.
 - Jitter-sign rows: all four `temporal_jitter_flip` runs with `fsr4 = true` on native Linux (the
   shipped sign was best of the four for FSR 4.1.2 under Proton, +1.5 to +5.8 dB). _(placeholder)_
 
+## Live neural rendering (development)
+
+A development build compiled with `-DREXGLUE_ENABLE_DLSS5_AMD=ON` can run the native DLSSNR-AMD
+network on every guest frame instead of on a captured image:
+
+```bash
+--dlss5_amd=true --dlss5_amd_mode=3 --dlss5_amd_data_path=/path/to/the/model/parent
+```
+
+At the composition seam — the first draw that samples the finished 1000×600 3D scene, before the
+HUD — the game resolves the Phase 2 motion guide, records one NR frame at 1920×1080, and gives
+that answer to the composition draw in place of the guest scene texture. The HUD is drawn after
+the composition, so it stays crisp and is not part of the NR image. Mode 0 turns the path off, and
+modes 1/2 still substitute a precomputed `dlss5_amd_image`, which is the way to reproduce an
+earlier frame exactly.
+
+Live mode needs the motion guide, which the game now enables automatically when
+`dlss5_amd_mode=3` is selected and `motion_guide` was not set explicitly. An explicit
+`--motion_guide=false` is honoured, but live NR then records nothing and the log says so. The
+remaining prerequisites are the same as above: the validated small model and shaders under
+`dlss5_amd_data_path`, an RDNA4 GPU, and a build with the option on. The F9 game menu's Graphics
+tab shows whether live NR is on, the recorded-frame count and the last frame's GPU time, or the
+first missing prerequisite when it is off.
+
+Measured on an RX 9070 XT at 1920×1080 with RADV: **4.8 ms mean GPU per guest frame** (p50 4.6 ms,
+max 10.5 ms over 2384 frames), no skipped frames, with guide history consumed from the second
+frame. The live identity control (the same pre-upscaled scene, no network) stays within 1–2
+8-bit codes of the guest composition, and real NR output against that control measures 41–45 dB
+PSNR when downscaled 8×, with a bit-identical HUD.
+
+NR also receives the game's own scene depth resolve (`0x11ECF000`, 1000x600 `D24S8`, resampled to
+the 1920x1080 evaluation extent and nearest-sampled by the network), which is what lets it pick the
+nearest of the five depth taps on a silhouette instead of bleeding the background vector across it.
+A frame without a usable depth resolve simply runs without it, as before; `dlss5_live_no_depth`
+forces that for an A/B.
+
+This path is development-only: it needs a hand-extracted NVIDIA model, the cvars are not in the
+settings UI. Expect the mode and the dev cvars
+(`dlss5_live_bypass`, `dlss5_live_no_depth`, `dlss5_live_no_substitute`, `dlss5_live_trace`) to
+change.
+
 ## Limits and next steps
 
 - The title screen is a soft scene. Repeat the A/B in gameplay, which has hard static edges, once

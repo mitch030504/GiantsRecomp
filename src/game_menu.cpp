@@ -253,6 +253,28 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
           ImGui::TextDisabled("DLSS 5 NR: off");
           break;
       }
+      // Live mode (dlss5_amd_mode=3, development): one NR frame per guest frame at the
+      // composition seam. The state above only says whether a frame has been recorded, so
+      // this line names the live-specific blocker and the per-frame GPU time when running.
+      // motion_guide is the one prerequisite the app can still turn on for the user.
+      if (rex::cvar::Query<int32_t>("dlss5_amd_mode") == 3) {
+        if (nr.state == rex::ui::dlss5_amd::State::kActive) {
+          ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
+                             "Live NR: on, %llu frames, last %.2f ms GPU",
+                             static_cast<unsigned long long>(nr.recorded_frames),
+                             double(nr.average_gpu_ms));
+        } else if (nr.state == rex::ui::dlss5_amd::State::kOff) {
+          ImGui::TextDisabled("Live NR: off - dlss5_amd is off");
+        } else if (nr.state == rex::ui::dlss5_amd::State::kInactive) {
+          ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Live NR: off - %s",
+                             nr.reason.c_str());
+        } else if (!rex::cvar::Query<bool>("motion_guide")) {
+          ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                             "Live NR: off - motion_guide is off");
+        } else {
+          ImGui::TextDisabled("Live NR: off - no frame recorded yet (see the log)");
+        }
+      }
       if (!nr.data_root.empty()) {
         ImGui::TextDisabled("Data: %s", nr.data_root.c_str());
       }

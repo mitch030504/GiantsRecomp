@@ -64,6 +64,25 @@ class GiantsrecompApp : public rex::ReXApp {
     SDL_SetHint(SDL_HINT_APP_NAME, "Giants Recompiled");
     // The Xenos GPU plugin renders the Xbox 360 command stream; without it nothing is drawn.
     if (config.gpu_plugin.empty()) config.gpu_plugin = "xenos";
+    // Live neural rendering (dlss5_amd_mode=3) records one DLSSNR-AMD frame per guest frame
+    // from the Phase 2 motion guide, so it records nothing without one. Both cvars are
+    // init-only and the Vulkan command processor reads motion_guide in SetupContext, which
+    // runs after this hook, so enable it here -- but only when the user did not choose a
+    // value themselves (toml file, REX_ environment variable, or --motion_guide). An
+    // explicit false is honoured and warned about rather than overridden.
+    if (rex::cvar::Query<int32_t>("dlss5_amd_mode") == 3) {
+      if (rex::cvar::GetFlagSource("motion_guide") == rex::cvar::Source::kDefault) {
+        if (rex::cvar::SetFlagByName("motion_guide", "true")) {
+          REXLOG_INFO("dlss5_amd_mode=3: enabled motion_guide for live neural rendering");
+        } else {
+          REXLOG_WARN("dlss5_amd_mode=3: could not enable motion_guide; live NR records nothing");
+        }
+      } else if (!rex::cvar::Query<bool>("motion_guide")) {
+        REXLOG_WARN(
+            "dlss5_amd_mode=3 with motion_guide=false: live NR will record nothing; remove the "
+            "override to let the guide enable automatically");
+      }
+    }
     // Some of the game's text (e.g. the autosave warning dialog) is already resolved by the time
     // OnPostSetup runs -- apply this as early as possible, before the XEX even loads.
     giantsrecomp::ApplyLanguageSetting();
