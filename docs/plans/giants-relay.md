@@ -473,7 +473,7 @@ Already in place:
    in `SessionStatus`, host/client paths (`src/netplay/lobby.cpp`, `session.cpp`).
 3. App: `netplay_lobby`, `netplay_room`, `netplay_relay` cvars, validation, F8 overlay and game-menu
    fields (`src/netplay/netplay.cpp:45-50`, `src/game_menu.cpp:42-44`, `299`, `320-343`).
-4. Tests: `server/tests/test_relay.py` (protocol + in-process integration, 20 tests),
+4. Tests: `server/tests/test_relay.py` (protocol + in-process integration, 21 tests),
    `server/tests/two_process.py` (real server + two peer processes), `tests/netplay_lobby_test.cpp`
    (endpoint/room-code parsing, registered as ctest `netplay_lobby`), and
    `tools/netplay_relay_smoke.py` (headless host + client through the relay).
