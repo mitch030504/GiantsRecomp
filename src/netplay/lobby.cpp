@@ -89,6 +89,13 @@ const char* StatusText(uint32_t status) {
   }
 }
 
+std::string Trim(std::string text) {
+  const auto not_space = [](unsigned char c) { return std::isspace(c) == 0; };
+  text.erase(text.begin(), std::find_if(text.begin(), text.end(), not_space));
+  text.erase(std::find_if(text.rbegin(), text.rend(), not_space).base(), text.end());
+  return text;
+}
+
 uint64_t Random64() {
   static thread_local std::mt19937_64 rng([] {
     std::random_device random;
@@ -138,17 +145,48 @@ int ENET_CALLBACK LobbyIntercept(ENetHost* host, ENetEvent* event) {
 }  // namespace
 
 bool ParseLobbyEndpoint(const std::string& endpoint, std::string& host, uint16_t& port) {
-  const auto colon = endpoint.rfind(':');
-  if (colon == std::string::npos || colon == 0 || colon + 1 == endpoint.size()) return false;
-  host = endpoint.substr(0, colon);
+  const std::string text = Trim(endpoint);
+  if (text.empty()) return false;
+  const auto colon = text.rfind(':');
+  uint32_t number = kDefaultLobbyPort;
+  if (colon == std::string::npos) {
+    host = text;
+  } else {
+    if (colon == 0 || colon + 1 == text.size()) return false;
+    host = text.substr(0, colon);
+    const auto tail = text.substr(colon + 1);
+    auto [end, ec] = std::from_chars(tail.data(), tail.data() + tail.size(), number);
+    if (ec != std::errc() || end != tail.data() + tail.size() || number == 0 || number > 65535)
+      return false;
+  }
   if (host.size() > 255 || host.find_first_of(" \t/") != std::string::npos) return false;
-  uint32_t number = 0;
-  const auto tail = endpoint.substr(colon + 1);
-  auto [end, ec] = std::from_chars(tail.data(), tail.data() + tail.size(), number);
-  if (ec != std::errc() || end != tail.data() + tail.size() || number == 0 || number > 65535)
-    return false;
   port = uint16_t(number);
   return true;
+}
+
+bool ParseLobbyEndpoints(const std::string& endpoints,
+                         std::vector<std::pair<std::string, uint16_t>>& out) {
+  out.clear();
+  size_t start = 0;
+  while (start <= endpoints.size()) {
+    const auto stop = endpoints.find_first_of(";,", start);
+    const auto token = endpoints.substr(start, stop == std::string::npos ? stop : stop - start);
+    if (!Trim(token).empty()) {
+      std::string host;
+      uint16_t port = 0;
+      if (!ParseLobbyEndpoint(token, host, port)) {
+        out.clear();
+        return false;
+      }
+      const bool duplicate = std::any_of(out.begin(), out.end(), [&](const auto& entry) {
+        return entry.first == host && entry.second == port;
+      });
+      if (!duplicate) out.emplace_back(std::move(host), port);
+    }
+    if (stop == std::string::npos) break;
+    start = stop + 1;
+  }
+  return !out.empty();
 }
 
 bool ValidRoomCode(std::string_view code) {
@@ -157,12 +195,10 @@ bool ValidRoomCode(std::string_view code) {
   });
 }
 
-LobbyClient::LobbyClient(bool host, std::string lobby_host, uint16_t lobby_port,
-                         std::string room_code, uint16_t gameplay_port,
-                         const std::string& build_hash)
+LobbyClient::LobbyClient(bool host, std::string lobby_endpoints, std::string room_code,
+                         uint16_t gameplay_port, const std::string& build_hash)
     : host_(host),
-      lobby_host_(std::move(lobby_host)),
-      lobby_port_(lobby_port),
+      lobby_endpoints_(std::move(lobby_endpoints)),
       room_code_(std::move(room_code)),
       gameplay_port_(gameplay_port),
       build_id_(BuildId(build_hash)) {}
@@ -178,16 +214,18 @@ bool LobbyClient::Begin(ENetHost& host, std::string& error) {
     std::transform(room_code_.begin(), room_code_.end(), room_code_.begin(),
                    [](unsigned char c) { return char(std::toupper(c)); });
   }
-  if (enet_address_set_host(&control_, lobby_host_.c_str()) != 0) {
-    error = "Cannot resolve the lobby address";
+  if (!ParseLobbyEndpoints(lobby_endpoints_, endpoints_)) {
+    error = "netplay_lobby must be host[:port], separated by ';'";
     return false;
   }
-  control_.port = lobby_port_;
+  endpoint_index_ = 0;
+  if (!SelectEndpoint(0, error)) return false;
   nonce_ = Random64();
   active_ = true;
   state_ = host_ ? State::kCreating : State::kJoining;
   const auto now = Clock::now();
-  deadline_ = now + std::chrono::seconds(10);
+  // A LAN candidate that does not answer costs this much before the external address is tried.
+  deadline_ = now + std::chrono::milliseconds(1500);
   next_send_ = now;
   t_lobby = this;
   host.intercept = &LobbyIntercept;
@@ -195,6 +233,20 @@ bool LobbyClient::Begin(ENetHost& host, std::string& error) {
     Shutdown(host);
     return false;
   }
+  return true;
+}
+
+bool LobbyClient::SelectEndpoint(size_t index, std::string& error) {
+  if (index >= endpoints_.size()) {
+    error = "No lobby endpoint left";
+    return false;
+  }
+  control_ = {};
+  if (enet_address_set_host(&control_, endpoints_[index].first.c_str()) != 0) {
+    error = "Cannot resolve lobby " + endpoints_[index].first;
+    return false;
+  }
+  control_.port = endpoints_[index].second;
   return true;
 }
 
@@ -238,6 +290,20 @@ void LobbyClient::Tick(ENetHost& host, Clock::time_point now) {
     case State::kCreating:
     case State::kJoining:
       if (now >= deadline_) {
+        if (endpoint_index_ + 1 < endpoints_.size()) {
+          // LAN candidate did not answer: move to the external address with a fresh nonce.
+          ++endpoint_index_;
+          std::string error;
+          if (!SelectEndpoint(endpoint_index_, error)) {
+            Fail(error);
+            return;
+          }
+          nonce_ = Random64();
+          deadline_ = now + std::chrono::milliseconds(1500);
+          next_send_ = now;
+          if (!SendRequest(host, error)) Fail(error);
+          return;
+        }
         Fail("Lobby did not respond");
         return;
       }
@@ -347,7 +413,11 @@ void LobbyClient::HandleControl(ENetHost& host) {
     uint16_t gameplay_port = 0;
     if (!Get16(body, relay_port) || !Get16(body, gameplay_port) || !body.empty()) return;
     (void)gameplay_port;  // Informational: the relay, not the host port, is the connect target.
-    relay_.host = ip;  // network byte order, as ENetAddress expects
+    // Use the control endpoint we actually reached, not the advertised address: a LAN client that
+    // used the LAN lobby address must not be sent to the public address (NAT hairpin fails), while a
+    // WAN client already reached the public one. The advertised IP is still parsed and validated.
+    (void)ip;
+    relay_.host = control_.host;
     relay_.port = relay_port;
     state_ = State::kConnecting;
     connect_ready_ = true;

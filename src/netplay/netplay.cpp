@@ -404,11 +404,11 @@ bool Prepare(rex::PathConfig& paths, std::string& error) {
   options.timeout = std::chrono::seconds(REXCVAR_GET(netplay_timeout_seconds));
   options.relay = RelayWanted();
   if (options.relay) {
-    uint16_t lobby_port = 0;
-    if (!ParseLobbyEndpoint(REXCVAR_GET(netplay_lobby), options.lobby_address, lobby_port)) {
-      error = "netplay_lobby must be host:port"; return false;
+    options.lobby_address = REXCVAR_GET(netplay_lobby);
+    std::vector<std::pair<std::string, uint16_t>> endpoints;
+    if (!ParseLobbyEndpoints(options.lobby_address, endpoints)) {
+      error = "netplay_lobby must be host[:port], separated by ';'"; return false;
     }
-    options.lobby_port = lobby_port;
     options.room = REXCVAR_GET(netplay_room);
     if (!state.host) options.port = 0;  // The client's ENet socket is ephemeral.
   } else if (!state.host &&
@@ -630,6 +630,12 @@ class Overlay : public rex::ui::ImGuiDialog {
     std::string error;
     { std::lock_guard lock(g_state.load()->mutex); error = g_state.load()->error; }
     if (error.empty()) error = status.error;
+    // A host waiting for a client must be able to read the room code without hunting for F8.
+    static std::string last_room;
+    if (!status.room.empty() && status.room != last_room) {
+      last_room = status.room;
+      visible_ = true;
+    }
     // Connection failures are always visible; F8 toggles the normal status panel.
     if (!visible_ && error.empty()) return;
     ImGui::SetNextWindowSize(ImVec2(430, 0), ImGuiCond_FirstUseEver);

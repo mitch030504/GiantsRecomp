@@ -196,9 +196,8 @@ struct Session::Impl {
     ENetPeer* peer = nullptr;
     bool connect_started = false;
     if (options.relay) {
-      lobby = std::make_unique<LobbyClient>(options.host, options.lobby_address,
-                                           options.lobby_port, options.room, options.port,
-                                           identity.build_hash);
+      lobby = std::make_unique<LobbyClient>(options.host, options.lobby_address, options.room,
+                                           options.port, identity.build_hash);
       std::string lobby_error;
       if (!lobby->Begin(*host, lobby_error)) {
         std::lock_guard lock(mutex);
@@ -311,8 +310,8 @@ bool Session::Start(const SessionOptions& options, const SessionIdentity& identi
       !HashValid(identity.build_hash) || identity.settings.size() > 1024 || options.delay > 12 ||
       options.timeout.count() <= 0 || startup.size() > kMaxStartupBytes ||
       (!options.host && (!startup.empty() || (!options.relay && options.port == 0))) ||
-      (options.relay && (options.lobby_address.empty() || options.lobby_port == 0 ||
-                         (!options.host && !ValidRoomCode(options.room))))) {
+      (options.relay &&
+       (options.lobby_address.empty() || (!options.host && !ValidRoomCode(options.room))))) {
     error = "Invalid session options or identity";
     return false;
   }

@@ -5,6 +5,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <enet/enet.h>
@@ -14,8 +15,14 @@ namespace giantsrecomp::netplay {
 constexpr uint16_t kDefaultLobbyPort = 32200;
 constexpr size_t kRoomCodeLength = 8;
 
-// "host:port", where host is a hostname or a numeric IPv4 address. Syntax only: no DNS lookup.
+// "host[:port]", where host is a hostname or a numeric IPv4 address. Port defaults to 32200.
+// Syntax only: no DNS lookup.
 bool ParseLobbyEndpoint(const std::string& endpoint, std::string& host, uint16_t& port);
+
+// A semicolon/comma-separated candidate list, tried in order: LAN address first, then the
+// external one. An unreachable candidate costs one short timeout before the next.
+bool ParseLobbyEndpoints(const std::string& endpoints,
+                         std::vector<std::pair<std::string, uint16_t>>& out);
 
 // The server's room format: eight hexadecimal characters. The client normalises to upper case.
 bool ValidRoomCode(std::string_view code);
@@ -25,7 +32,7 @@ bool ValidRoomCode(std::string_view code);
 // ENet for raw datagrams on the same thread. No method takes the Session mutex.
 class LobbyClient {
  public:
-  LobbyClient(bool host, std::string lobby_host, uint16_t lobby_port, std::string room_code,
+  LobbyClient(bool host, std::string lobby_endpoints, std::string room_code,
               uint16_t gameplay_port, const std::string& build_hash);
   ~LobbyClient();
   LobbyClient(const LobbyClient&) = delete;
@@ -51,14 +58,16 @@ class LobbyClient {
   enum class State { kIdle, kCreating, kJoining, kHello, kConnecting, kReady, kFailed };
 
   bool SendRequest(ENetHost& host, std::string& error);
+  bool SelectEndpoint(size_t index, std::string& error);
   void SendHello(ENetHost& host);
   void SendKeepalive(ENetHost& host);
   void HandleControl(ENetHost& host);
   void Fail(const std::string& message);
 
   bool host_ = false;
-  std::string lobby_host_;
-  uint16_t lobby_port_ = kDefaultLobbyPort;
+  std::string lobby_endpoints_;
+  std::vector<std::pair<std::string, uint16_t>> endpoints_;
+  size_t endpoint_index_ = 0;
   std::string room_code_;
   uint16_t gameplay_port_ = 0;
   uint32_t build_id_ = 0;

@@ -20,8 +20,7 @@ struct SessionOptions {
   std::chrono::milliseconds timeout{30000};
   // Relay: the client's port is 0 (an ephemeral socket); the host keeps its netplay port.
   bool relay = false;
-  std::string lobby_address;
-  uint16_t lobby_port = 32200;
+  std::string lobby_address;  // One or more "host[:port]" candidates, separated by ';'.
   std::string room;
 };
 

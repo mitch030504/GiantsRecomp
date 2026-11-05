@@ -34,3 +34,15 @@ skip_intro = true                         # skip the Activision and Toys for Bob
 
 ["Runtime"]
 # user_data_root = "C:\\path\\to\\folder" # empty = Documents\giantsrecomp
+
+# Experimental netplay (start both games from launch; see docs/netplay.md).
+# netplay_host = true
+# netplay_port = 24872
+# netplay_connect = "192.168.1.10:24872"
+# netplay_delay = 3 # Host-selected controller-read delay, normally ~60 reads/s.
+#
+# Self-hosted relay (NAT traversal): the host creates a room, the client joins by code.
+# Candidates are tried in order, LAN first and then the external address; empty = direct mode.
+# netplay_relay = "auto"
+# netplay_lobby = "192.168.8.2:32200;188.91.1.230:32200"
+# netplay_room = "A1B2C3D4" # Client only.

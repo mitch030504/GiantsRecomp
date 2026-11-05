@@ -303,7 +303,12 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
       ImGui::TextDisabled("Restart both games to reconnect. F8 toggles the status overlay.");
       ImGui::Separator();
     } else if (netplay::Requested()) {
-      ImGui::TextDisabled("A session was requested at launch but is not active (see the log).");
+      if (info.relay) {
+        ImGui::Text("Room: %s | Relay: %s", info.room.c_str(), info.relay_endpoint.c_str());
+        ImGui::Text("Lobby: %s", info.lobby_state.c_str());
+      } else {
+        ImGui::TextDisabled("A session was requested at launch but is not active (see the log).");
+      }
       ImGui::Separator();
     }
 
