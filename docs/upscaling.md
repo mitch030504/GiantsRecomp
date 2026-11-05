@@ -142,16 +142,24 @@ or any `fsr4-assets/` tree, or any fsr4-vk `build/linux`, `build/windows`, or `a
 under `installer/staging/` or `dist/`.
 
 **Measured on the RX 9070 XT (RADV, 2026-11-05):** the provider reports `FSR 4.1.2` and upscales
-1080p -> 4K. Full-frame PSNR against the native-4K render, frames 300-570 of the title screen with
-the shipped jitter sign: **FSR 4.1.2 38.32 dB mean vs FSR 3.1.4 35.08 dB** (+3.2 dB, 10 frames).
+1080p -> 4K. Full-frame PSNR against the native-4K render, frames 300-570 of the title screen:
+**FSR 4.1.2 42.87 dB mean vs FSR 3.1.4 35.08 dB** (+7.8 dB, 12 frames, with the FSR 4 jitter sign
+below; the shipped sign gives 38.34 dB).
 The edge-weighted error is mixed per frame (better on most, worse on two), which is why the
 jitter-sign sweep below is still worth running. This is a direct full-frame comparison; the
 `tools/upscaler_ab.sh` masked table needs a longer run than the 24 s used here.
 
-**Still to measure:** all four `temporal_jitter_flip` runs with `fsr4 = true` on native Linux (the
-shipped sign was best of the four for FSR 4.1.2 under Proton, +1.5 to +5.8 dB), the masked
-`upscaler_ab.sh` table with the full 36 s runs, and the in-game GPU cost (the Phase 0 runner
-measured 0.64-1.6 ms at 1080p->4K; we have not added timestamps to the in-engine dispatch yet).
+**Jitter sign:** FSR 4.1.2 wants the opposite projection jitter from FSR 3.1 on this title. All
+four `temporal_jitter_flip` values were measured with `fsr4 = true` against the native-4K render
+(12 title-screen frames): flip 1 (negate x) **42.87 dB / edge 34.27**, flip 3 38.71, flip 0 38.34,
+flip 2 36.00. With `fsr4 = true` the game now sets `temporal_jitter_flip = 1` at startup when the
+user did not choose a value (an explicit value still wins), which is what the 42.87 dB row above
+uses. Negating only the offset reported to the upscaler, or both the projection and the report,
+measured worse (39.19 and 35.73 dB), so the hook flip alone is the correct combination.
+
+**Still to measure:** the masked `upscaler_ab.sh` table with the full 36 s runs, and the in-game
+GPU cost (the Phase 0 runner measured 0.64-1.6 ms at 1080p->4K; we have not added timestamps to
+the in-engine dispatch yet).
 
 ## Live neural rendering (development)
 

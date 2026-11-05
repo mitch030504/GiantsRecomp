@@ -83,6 +83,18 @@ class GiantsrecompApp : public rex::ReXApp {
             "override to let the guide enable automatically");
       }
     }
+    // FSR 4.1.2's jitter convention is the opposite of FSR 3.1's on this title. Measured against
+    // a native-4K render of the same frames (tools/upscaler_ab.sh, 12 title-screen frames):
+    // negating the projection jitter on x is +4.5 dB over the shipped sign for FSR 4 (42.87 vs
+    // 38.34 dB); negating only the reported offset, or both sides, is worse. The projection hook
+    // and the motion guide read this cvar; the presenter keeps telling the upscaler the
+    // unflipped offset, which is the combination that measured best. An explicit value wins.
+    if (rex::cvar::Query<bool>("fsr4") &&
+        rex::cvar::GetFlagSource("temporal_jitter_flip") == rex::cvar::Source::kDefault) {
+      if (rex::cvar::SetFlagByName("temporal_jitter_flip", "1")) {
+        REXLOG_INFO("fsr4=true: set temporal_jitter_flip=1 (FSR 4's jitter sign, measured +4.5 dB)");
+      }
+    }
     // Some of the game's text (e.g. the autosave warning dialog) is already resolved by the time
     // OnPostSetup runs -- apply this as early as possible, before the XEX even loads.
     giantsrecomp::ApplyLanguageSetting();
