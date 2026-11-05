@@ -1,7 +1,9 @@
 #include "netplay/netplay.h"
 #include "netplay_build.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstring>
 #include <map>
@@ -21,6 +23,7 @@
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/keybinds.h>
 
+#include "netplay/lobby.h"
 #include "netplay/lockstep.h"
 #include "netplay/figure_sync.h"
 #include "netplay/save_snapshot.h"
@@ -39,6 +42,12 @@ REXCVAR_DEFINE_INT32(netplay_delay, 3, "Netplay", "Host-selected controller-read
     .range(0, 12).lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_INT32(netplay_timeout_seconds, 60, "Netplay", "Connection/input timeout; failures pause guest execution.")
     .range(1, 600).lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_STRING(netplay_lobby, "", "Netplay", "Self-hosted relay control server host:port (UDP 32200); empty = direct mode.")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_STRING(netplay_room, "", "Netplay", "Client: relay room code (8 hex) to join on netplay_lobby.")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_STRING(netplay_relay, "auto", "Netplay", "auto = use netplay_lobby when set; off = direct-IP only.")
+    .allowed({"auto", "off"}).lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_INT32(netplay_hash_interval, 0, "Netplay", "Experimental: memory hash every N reads, 0 disables (known unused-byte differences can falsely report desync).")
     .range(0, 1000000).lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_INT32(netplay_hash_start_read, 600, "Netplay", "Experimental: first controller read at which memory hashing starts. Boot writes host-specific data (timestamps, audio buffers), so hashing from read 0 false-positives.")
@@ -269,7 +278,13 @@ void ApplyPortal(const InputFrame& frame, int player, uint32_t index) {
 }
 }  // namespace
 
-bool Requested() { return REXCVAR_GET(netplay_host) || !REXCVAR_GET(netplay_connect).empty(); }
+bool RelayWanted() {
+  return REXCVAR_GET(netplay_relay) != "off" && !REXCVAR_GET(netplay_lobby).empty();
+}
+bool Requested() {
+  return REXCVAR_GET(netplay_host) || !REXCVAR_GET(netplay_connect).empty() ||
+         (RelayWanted() && !REXCVAR_GET(netplay_room).empty());
+}
 bool Enabled() { return g_state.load() && g_state.load()->active.load(); }
 
 SessionInfo GetSessionInfo() {
@@ -282,6 +297,10 @@ SessionInfo GetSessionInfo() {
   const auto status = state->session.status();
   info.ping_ms = status.ping_ms;
   info.delay = status.delay;
+  info.relay = status.relay;
+  info.room = status.room;
+  info.relay_endpoint = status.relay_endpoint;
+  info.lobby_state = status.lobby_state;
   {
     std::lock_guard lock(state->mutex);
     info.error = state->error.empty() ? status.error : state->error;
@@ -294,6 +313,30 @@ bool Configure(const fs::path& user_root, std::string& error) {
   if (REXCVAR_GET(netplay_host) && !REXCVAR_GET(netplay_connect).empty()) {
     error = "Choose netplay_host or netplay_connect, not both"; return false;
   }
+  const bool relay = RelayWanted();
+  std::string room = REXCVAR_GET(netplay_room);
+  if (!room.empty()) {
+    std::transform(room.begin(), room.end(), room.begin(),
+                   [](unsigned char c) { return char(std::toupper(c)); });
+    if (room != REXCVAR_GET(netplay_room))
+      rex::cvar::SetFlagByName("netplay_room", room);
+  }
+  if (relay) {
+    if (REXCVAR_GET(netplay_host) && !room.empty()) {
+      error = "netplay_room is for the client, not the host"; return false;
+    }
+    if (!REXCVAR_GET(netplay_host) && room.empty()) {
+      error = "netplay_room is required for a relay client"; return false;
+    }
+    if (!REXCVAR_GET(netplay_host) && !REXCVAR_GET(netplay_connect).empty()) {
+      error = "Use netplay_room or netplay_connect, not both"; return false;
+    }
+    if (!room.empty() && !ValidRoomCode(room)) {
+      error = "netplay_room must be 8 hexadecimal characters"; return false;
+    }
+  } else if (!room.empty()) {
+    error = "netplay_room requires netplay_lobby"; return false;
+  }
   // Both games must see the same guest clock and display mode even on different monitors.
   for (const auto& [name, value] : {std::pair{"sched_deterministic", "true"},
        {"clock_frame_locked", "true"}, {"clock_frame_locked_waits", "true"},
@@ -304,7 +347,8 @@ bool Configure(const fs::path& user_root, std::string& error) {
        {"present_effect", "bilinear"}, {"portal_mode", "software"}})
     if (!Set(name, value, error)) return false;
   for (const char* name : {"netplay_host", "netplay_connect", "netplay_port", "netplay_delay",
-                           "netplay_timeout_seconds"})
+                           "netplay_timeout_seconds", "netplay_lobby", "netplay_room",
+                           "netplay_relay"})
     if (!rex::cvar::LockFlag(name)) { error = "Cannot lock session options"; return false; }
   if (rex::cvar::GetFlagByName("portal_figures_dir").empty() &&
       !Set("portal_figures_dir", giantsrecomp::Utf8(user_root / "figures").c_str(), error)) return false;
@@ -331,7 +375,17 @@ bool Prepare(rex::PathConfig& paths, std::string& error) {
   options.port = uint16_t(REXCVAR_GET(netplay_port));
   options.delay = uint32_t(REXCVAR_GET(netplay_delay));
   options.timeout = std::chrono::seconds(REXCVAR_GET(netplay_timeout_seconds));
-  if (!state.host && !ParseEndpoint(REXCVAR_GET(netplay_connect), options.address, options.port)) {
+  options.relay = RelayWanted();
+  if (options.relay) {
+    uint16_t lobby_port = 0;
+    if (!ParseLobbyEndpoint(REXCVAR_GET(netplay_lobby), options.lobby_address, lobby_port)) {
+      error = "netplay_lobby must be host:port"; return false;
+    }
+    options.lobby_port = lobby_port;
+    options.room = REXCVAR_GET(netplay_room);
+    if (!state.host) options.port = 0;  // The client's ENet socket is ephemeral.
+  } else if (!state.host &&
+             !ParseEndpoint(REXCVAR_GET(netplay_connect), options.address, options.port)) {
     error = "netplay_connect must be a numeric IPv4:port"; return false;
   }
   SessionIdentity identity{GIANTSRECOMP_XEX_SHA256, GIANTSRECOMP_BUILD_HASH, Settings()};
@@ -349,24 +403,47 @@ bool Prepare(rex::PathConfig& paths, std::string& error) {
     startup.insert(startup.end(), snapshot.begin(), snapshot.end());
     snapshot = std::move(startup);
   }
-  REXLOG_INFO("Netplay: {} (UDP {}, timeout {} s)", state.host ? "waiting for client" : "connecting",
-              options.port, REXCVAR_GET(netplay_timeout_seconds));
-  if (!state.session.Start(options, identity, std::move(snapshot), error) ||
-      !state.session.WaitReady(error)) return false;
+  if (options.relay) {
+    REXLOG_INFO("Netplay: {} via lobby {} (relay)",
+                state.host ? "creating a room" : ("joining room " + options.room),
+                REXCVAR_GET(netplay_lobby));
+  } else {
+    REXLOG_INFO("Netplay: {} (UDP {}, timeout {} s)",
+                state.host ? "waiting for client" : "connecting", options.port,
+                REXCVAR_GET(netplay_timeout_seconds));
+  }
+  if (!state.session.Start(options, identity, std::move(snapshot), error)) return false;
+  if (!state.session.WaitReady(error)) {
+    state.session.Stop();
+    return false;
+  }
   if (!state.host) {
     auto startup = state.session.startup();
-    if (startup.size() < 4) { error = "Truncated startup data"; return false; }
+    if (startup.size() < 4) {
+      state.session.Stop();
+      error = "Truncated startup data";
+      return false;
+    }
     uint32_t n = 0;
     for (int i = 0; i < 4; ++i) n |= uint32_t(startup[i]) << (8 * i);
     if (n > startup.size() - 4 || !DecodeInput(std::span(startup).subspan(4, n), state.initial)) {
-      error = "Invalid startup portal snapshot"; return false;
+      state.session.Stop();
+      error = "Invalid startup portal snapshot";
+      return false;
     }
     // The client's own saves stay untouched; retained temporary data can be inspected afterward.
     std::error_code ec;
     const auto parent = fs::temp_directory_path(ec);
-    if (ec) { error = "Cannot locate temporary session storage"; return false; }
+    if (ec) {
+      state.session.Stop();
+      error = "Cannot locate temporary session storage";
+      return false;
+    }
     const auto fresh = parent / RandomName();
-    if (!UnpackSaveSnapshot(std::span(startup).subspan(4 + n), fresh, error)) return false;
+    if (!UnpackSaveSnapshot(std::span(startup).subspan(4 + n), fresh, error)) {
+      state.session.Stop();
+      return false;
+    }
     paths.user_data_root = fresh;
     paths.cache_root = fresh / "cache";
     REXLOG_INFO("Netplay: client saves isolated in {}", giantsrecomp::Utf8(fresh));
@@ -374,7 +451,11 @@ bool Prepare(rex::PathConfig& paths, std::string& error) {
   state.remote_figures = paths.user_data_root / "figures" / RandomName();
   std::error_code ec;
   fs::create_directories(state.remote_figures, ec);
-  if (ec) { error = "Cannot create session figure directory"; return false; }
+  if (ec) {
+    state.session.Stop();
+    error = "Cannot create session figure directory";
+    return false;
+  }
   state.lockstep = std::make_unique<Lockstep>(state.session, state.host);
   REXLOG_INFO("Netplay: session ready, local player {}, delay {} reads", state.host ? 1 : 2,
               state.session.status().delay);
@@ -396,7 +477,8 @@ void Install(rex::input::InputSystem* input) {
        "audio_guest_paced", "clock_frame_locked_hz", "clock_no_scaling", "clock_source_raw",
        "video_mode_width", "video_mode_height", "video_mode_refresh_rate", "frame_rate_limit",
        "present_effect", "portal_mode", "user_language", "skip_intro", "netplay_hash_interval",
-       "netplay_hash_start_read", "netplay_hash_skip_pages"}) {
+       "netplay_hash_start_read", "netplay_hash_skip_pages", "netplay_lobby", "netplay_room",
+       "netplay_relay"}) {
     if (!rex::cvar::LockFlag(name)) Pause(std::string("Cannot lock required setting: ") + name);
   }
   input->AddDriver(std::make_unique<RemoteDriver>());
@@ -522,6 +604,11 @@ class Overlay : public rex::ui::ImGuiDialog {
       ImGui::Text("Local player: %d (%s)", g_state.load()->host ? 1 : 2, g_state.load()->host ? "host" : "client");
       ImGui::Text("Ping: %u ms | Input delay: %u reads", status.ping_ms, status.delay);
       ImGui::Text("Synchronized controller read: %u", g_state.load()->read.load());
+      if (status.relay) {
+        ImGui::Text("Relay: %s | Room: %s", status.relay_endpoint.c_str(),
+                    status.room.c_str());
+        ImGui::Text("Lobby: %s", status.lobby_state.c_str());
+      }
       if (!error.empty()) { ImGui::TextWrapped("Paused: %s", error.c_str()); ImGui::TextUnformatted("Close the game and start a new session to reconnect."); }
       else ImGui::TextUnformatted(status.ready ? "Connected. Use F6 to place or remove figures." : "Waiting for the peer and startup data...");
     }

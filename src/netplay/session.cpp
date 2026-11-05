@@ -1,5 +1,7 @@
 #include "netplay/session.h"
 
+#include "netplay/lobby.h"
+
 #include <enet/enet.h>
 
 #include <algorithm>
@@ -83,6 +85,7 @@ struct Session::Impl {
   SessionOptions options;
   SessionIdentity identity, remote;
   SessionStatus status;
+  std::unique_ptr<LobbyClient> lobby;
   std::vector<uint8_t> startup;
   std::deque<std::vector<uint8_t>> outgoing;
   std::map<uint32_t, std::vector<uint8_t>> incoming;
@@ -191,7 +194,22 @@ struct Session::Impl {
       cv.notify_all();
     }
     ENetPeer* peer = nullptr;
-    if (!options.host) {
+    bool connect_started = false;
+    if (options.relay) {
+      lobby = std::make_unique<LobbyClient>(options.host, options.lobby_address,
+                                           options.lobby_port, options.room, options.port,
+                                           identity.build_hash);
+      std::string lobby_error;
+      if (!lobby->Begin(*host, lobby_error)) {
+        std::lock_guard lock(mutex);
+        Fail(lobby_error);
+        enet_host_destroy(host);
+        lobby.reset();
+        return;
+      }
+      std::lock_guard lock(mutex);
+      status.relay = true;
+    } else if (!options.host) {
       if (enet_address_set_host_ip(&address, options.address.c_str()) == 0) {
         address.port = options.port;
         peer = enet_host_connect(host, &address, 1, kProtocol);
@@ -203,10 +221,32 @@ struct Session::Impl {
     }
     const auto deadline = std::chrono::steady_clock::now() + options.timeout;
     for (;;) {
+      const auto now = std::chrono::steady_clock::now();
+      if (lobby) {
+        lobby->Tick(*host, now);
+        if (lobby->failed()) {
+          std::lock_guard lock(mutex);
+          Fail(lobby->error());
+          break;
+        }
+        if (!options.host && !connect_started && lobby->connect_ready()) {
+          peer = enet_host_connect(host, &lobby->relay_address(), 1, kProtocol);
+          connect_started = true;
+          if (!peer) {
+            std::lock_guard lock(mutex);
+            Fail("Could not connect to the relay");
+            break;
+          }
+        }
+        std::lock_guard lock(mutex);
+        status.lobby_state = lobby->state();
+        status.room = lobby->room();
+        status.relay_endpoint = lobby->relay_endpoint();
+      }
       {
         std::lock_guard lock(mutex);
         if (stop || !status.error.empty()) break;
-        if (!status.ready && std::chrono::steady_clock::now() >= deadline) {
+        if (!status.ready && now >= deadline) {
           Fail("Timed out waiting for netplay handshake");
           break;
         }
@@ -224,6 +264,7 @@ struct Session::Impl {
       if (service == 0) continue;
       if (event.type == ENET_EVENT_TYPE_CONNECT) {
         peer = event.peer;
+        if (lobby) lobby->OnConnected();
         enet_peer_timeout(peer, 8, 3000, 10000);
         std::vector<uint8_t> message{kHello};
         Put32(message, kProtocol);
@@ -249,11 +290,13 @@ struct Session::Impl {
         enet_packet_destroy(event.packet);
       }
     }
+    if (lobby) lobby->Shutdown(*host);
     if (peer) {
       enet_peer_disconnect_now(peer, 0);
       enet_host_flush(host);
     }
     enet_host_destroy(host);
+    lobby.reset();
   }
 };
 
@@ -267,7 +310,9 @@ bool Session::Start(const SessionOptions& options, const SessionIdentity& identi
   if (impl_->worker.joinable() || !HashValid(identity.xex_hash) ||
       !HashValid(identity.build_hash) || identity.settings.size() > 1024 || options.delay > 12 ||
       options.timeout.count() <= 0 || startup.size() > kMaxStartupBytes ||
-      (!options.host && (!startup.empty() || options.port == 0))) {
+      (!options.host && (!startup.empty() || (!options.relay && options.port == 0))) ||
+      (options.relay && (options.lobby_address.empty() || options.lobby_port == 0 ||
+                         (!options.host && !ValidRoomCode(options.room))))) {
     error = "Invalid session options or identity";
     return false;
   }
@@ -276,6 +321,7 @@ bool Session::Start(const SessionOptions& options, const SessionIdentity& identi
   impl_->identity = identity;
   impl_->startup = std::move(startup);
   impl_->status.delay = options.delay;
+  impl_->status.relay = options.relay;
   impl_->worker = std::thread([this] { impl_->Run(); });
   return true;
 }

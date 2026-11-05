@@ -18,6 +18,11 @@ struct SessionOptions {
   uint16_t port = 24872;
   uint32_t delay = 3;
   std::chrono::milliseconds timeout{30000};
+  // Relay: the client's port is 0 (an ephemeral socket); the host keeps its netplay port.
+  bool relay = false;
+  std::string lobby_address;
+  uint16_t lobby_port = 32200;
+  std::string room;
 };
 
 struct SessionIdentity {
@@ -32,6 +37,10 @@ struct SessionStatus {
   uint32_t ping_ms = 0;
   uint32_t delay = 0;
   std::string error;
+  bool relay = false;
+  std::string room;
+  std::string relay_endpoint;
+  std::string lobby_state;
 };
 
 // ENet is serviced by one host thread. Guest input waits retain the deterministic run token:

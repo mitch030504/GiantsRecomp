@@ -20,6 +20,10 @@ struct SessionInfo {
   uint32_t ping_ms = 0;
   uint32_t delay = 0;
   std::string error;
+  bool relay = false;
+  std::string room;
+  std::string relay_endpoint;
+  std::string lobby_state;
 };
 SessionInfo GetSessionInfo();
 bool Configure(const std::filesystem::path& user_root, std::string& error);

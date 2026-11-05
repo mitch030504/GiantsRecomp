@@ -36,7 +36,8 @@ configure_file(thirdparty/enet/LICENSE "${CMAKE_CURRENT_BINARY_DIR}/enet_license
 if(WIN32)
     target_link_libraries(enet PUBLIC winmm ws2_32)
 endif()
-add_library(giantsrecomp_netplay STATIC src/netplay/session.cpp src/netplay/lockstep.cpp src/netplay/save_snapshot.cpp)
+add_library(giantsrecomp_netplay STATIC src/netplay/session.cpp src/netplay/lobby.cpp
+    src/netplay/lockstep.cpp src/netplay/save_snapshot.cpp)
 target_include_directories(giantsrecomp_netplay PUBLIC src PRIVATE thirdparty/enet/include)
 find_package(Threads REQUIRED)
 target_link_libraries(giantsrecomp_netplay PUBLIC enet Threads::Threads)
@@ -195,6 +196,11 @@ target_link_libraries(giantsrecomp_netplay_session_test PRIVATE giantsrecomp_net
 target_include_directories(giantsrecomp_netplay_session_test PRIVATE thirdparty/enet/include)
 add_test(NAME netplay_session COMMAND giantsrecomp_netplay_session_test)
 set_tests_properties(netplay_session PROPERTIES TIMEOUT 20)
+
+add_executable(giantsrecomp_netplay_lobby_test tests/netplay_lobby_test.cpp)
+target_link_libraries(giantsrecomp_netplay_lobby_test PRIVATE giantsrecomp_netplay)
+target_include_directories(giantsrecomp_netplay_lobby_test PRIVATE thirdparty/enet/include)
+add_test(NAME netplay_lobby COMMAND giantsrecomp_netplay_lobby_test)
 
 add_executable(giantsrecomp_netplay_lockstep_test tests/netplay_lockstep_test.cpp)
 target_link_libraries(giantsrecomp_netplay_lockstep_test PRIVATE giantsrecomp_netplay)

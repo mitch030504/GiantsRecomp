@@ -39,6 +39,9 @@ REXCVAR_DECLARE(std::string, netplay_connect);
 REXCVAR_DECLARE(int32_t, netplay_port);
 REXCVAR_DECLARE(int32_t, netplay_delay);
 REXCVAR_DECLARE(int32_t, netplay_timeout_seconds);
+REXCVAR_DECLARE(std::string, netplay_lobby);
+REXCVAR_DECLARE(std::string, netplay_room);
+REXCVAR_DECLARE(std::string, netplay_relay);
 
 namespace giantsrecomp::gamemenu {
 namespace {
@@ -117,6 +120,8 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
     std::snprintf(join_addr_, sizeof(join_addr_), "%s", REXCVAR_GET(netplay_connect).c_str());
     std::snprintf(delay_, sizeof(delay_), "%d", int(REXCVAR_GET(netplay_delay)));
     std::snprintf(timeout_, sizeof(timeout_), "%d", int(REXCVAR_GET(netplay_timeout_seconds)));
+    std::snprintf(lobby_addr_, sizeof(lobby_addr_), "%s", REXCVAR_GET(netplay_lobby).c_str());
+    std::snprintf(room_code_, sizeof(room_code_), "%s", REXCVAR_GET(netplay_room).c_str());
   }
 
   ~GameMenuDialog() override { StopCapture(); }
@@ -290,6 +295,10 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
                   info.host ? "host" : "client");
       ImGui::Text("Synchronized read: %u | ping: %u ms | input delay: %u reads", info.read,
                   info.ping_ms, info.delay);
+      if (info.relay) {
+        ImGui::Text("Relay: %s | Room: %s", info.relay_endpoint.c_str(), info.room.c_str());
+        ImGui::Text("Lobby: %s", info.lobby_state.c_str());
+      }
       if (!info.error.empty()) ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Paused: %s", info.error.c_str());
       ImGui::TextDisabled("Restart both games to reconnect. F8 toggles the status overlay.");
       ImGui::Separator();
@@ -302,18 +311,36 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
     ImGui::Spacing();
     if (ImGui::CollapsingHeader("Host a game", ImGuiTreeNodeFlags_DefaultOpen)) {
       ImGui::InputText("UDP port", host_port_, sizeof(host_port_));
+      ImGui::InputText("Lobby (host:port, empty = direct)", lobby_addr_,
+                       sizeof(lobby_addr_));
       if (ImGui::Button("Host with these settings")) {
         rex::cvar::SetFlagByName("netplay_host", "true");
         rex::cvar::SetFlagByName("netplay_connect", "");
         rex::cvar::SetFlagByName("netplay_port", host_port_);
+        rex::cvar::SetFlagByName("netplay_lobby", lobby_addr_);
+        rex::cvar::SetFlagByName("netplay_room", "");
+        rex::cvar::SetFlagByName("netplay_relay", "auto");
         SaveAndRestart();
       }
     }
     if (ImGui::CollapsingHeader("Join a game")) {
-      ImGui::InputText("Host address (numeric IPv4:port)", join_addr_, sizeof(join_addr_));
-      if (ImGui::Button("Join with these settings")) {
+      ImGui::InputText("Lobby (host:port)", lobby_addr_, sizeof(lobby_addr_));
+      ImGui::InputText("Room code (8 hex)", room_code_, sizeof(room_code_));
+      if (ImGui::Button("Join relay room")) {
+        rex::cvar::SetFlagByName("netplay_host", "false");
+        rex::cvar::SetFlagByName("netplay_connect", "");
+        rex::cvar::SetFlagByName("netplay_lobby", lobby_addr_);
+        rex::cvar::SetFlagByName("netplay_room", room_code_);
+        rex::cvar::SetFlagByName("netplay_relay", "auto");
+        SaveAndRestart();
+      }
+      ImGui::InputText("or direct host (IPv4:port)", join_addr_, sizeof(join_addr_));
+      if (ImGui::Button("Join direct")) {
         rex::cvar::SetFlagByName("netplay_host", "false");
         rex::cvar::SetFlagByName("netplay_connect", join_addr_);
+        rex::cvar::SetFlagByName("netplay_lobby", "");
+        rex::cvar::SetFlagByName("netplay_room", "");
+        rex::cvar::SetFlagByName("netplay_relay", "auto");
         SaveAndRestart();
       }
     }
@@ -324,8 +351,8 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
       rex::cvar::SetFlagByName("netplay_timeout_seconds", timeout_);
       SaveAndRestart();
     }
-    ImGui::TextDisabled("Experimental: trusted peers on a trusted network only — no auth or "
-                        "encryption. WAN needs a VPN or port forward.");
+    ImGui::TextDisabled("Experimental: trusted peers only — no auth or encryption. Direct play "
+                        "needs a VPN or port forward; the relay only solves NAT.");
   }
 
   void DrawControls() {
@@ -411,6 +438,8 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
   char join_addr_[64]{};
   char delay_[8]{};
   char timeout_[8]{};
+  char lobby_addr_[96]{};
+  char room_code_[16]{};
 };
 
 }  // namespace
