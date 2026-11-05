@@ -190,9 +190,11 @@ fails; `--json` writes the same data for tooling.
    absolute latency, underrun behaviour and audibility must be confirmed on the real device with
    the same `SDL_AUDIO_DEVICE_SAMPLE_FRAMES` value. A null-sink pass is necessary, not sufficient.
 4. **The capture starts before the game and ends at the deadline.** Boot/menu audio is included;
-   the analyzer skips 10 s by default. `parec` can lose roughly the last second to buffering, so
-   `metadata.json`'s `capture_seconds` (from file size) is authoritative, not the requested
-   seconds. Compare runs of similar length.
+   the analyzer skips 10 s by default. Each run gets a fresh private data root, so shader-cache
+   work repeats and a short run can be mostly loading; use a longer `--seconds` if the game log
+   shows the capture never reached gameplay. `parec` can lose roughly the last second to
+   buffering, so `metadata.json`'s `capture_seconds` (from file size) is authoritative, not the
+   requested seconds. Compare runs of similar length.
 5. **Exact zero is not the same as silence.** Dither, DC offset or a very low mix means "quiet"
    audio may not be exactly `0.0`. The zero check is a starvation proxy, not an audibility meter.
 6. **Clicks are content-sensitive.** The 2x wall threshold is a screen, not a perceptual click

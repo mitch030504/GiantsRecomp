@@ -261,10 +261,13 @@ trap 'cleanup 143' TERM
 trap 'cleanup 129' HUP
 
 # Load the private sink only after the trap exists, so every failure below still unloads it.
-module_id=$(pactl load-module module-null-sink \
+if ! module_id=$(pactl load-module module-null-sink \
   sink_name="$sink_name" rate=48000 channels=2 \
-  "sink_properties=device.description=GiantsAudioProbe" 2>/dev/null) \
-  || { module_id=""; die "failed to load the private null sink"; }
+  "sink_properties=device.description=GiantsAudioProbe" 2>"$run_root/module.err"); then
+  cat "$run_root/module.err" >&2 || true
+  module_id=""
+  die "failed to load the private null sink"
+fi
 [[ -n $module_id ]] || die "the sound server returned an empty module id"
 sink_index=$(pactl list short sinks 2>/dev/null | awk -v want="$sink_name" '$2 == want { print $1; exit }')
 [[ -n $sink_index ]] || die "the private sink '$sink_name' did not appear"

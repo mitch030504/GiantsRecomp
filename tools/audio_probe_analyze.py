@@ -658,9 +658,9 @@ def main(argv=None):
                     + '. The larger device buffer is masking the producer/device rate mismatch, '
                       'not fixing it: output latency doubles and the defect returns with a '
                       'heavier scene or another buffer size.')
-        elif 2048 in by_size and not any(size < 2048 for size in by_size):
-            masking.append(f"{mode}: incomplete sweep; only the 2048-frame run is present. "
-                           'Test 256 and 1024 as well, or a 2048 pass proves nothing.')
+        elif 2048 in by_size:
+            masking.append(f"{mode}: incomplete sweep; no usable 256 or 1024 run is present. "
+                           'Test both as well, or a 2048 pass proves nothing.')
 
     problems = []
     host_notes = []
