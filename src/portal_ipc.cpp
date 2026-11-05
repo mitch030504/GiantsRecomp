@@ -202,9 +202,9 @@ std::string ProcessCommand(const std::string& line) {
     std::error_code ec;
     if (fs::exists(path, ec)) return "error file exists\n";
     const FigureData data = skylanders::portal::CreateBlankFigure(uint16_t(id), uint16_t(variant));
-    // Known follow-up, not fixed here: SaveFigureFileAtomic writes "<path>.tmp" by name, so a
-    // symlink planted at that path is followed rather than replaced. This is the only create path
-    // reachable over IPC; the fix belongs in the portal's file helpers, not in this server.
+    // SaveFigureFileAtomic now creates an unpredictably named sibling with exclusive-create
+    // semantics, so a symlink planted next to the destination cannot be followed. This is the only
+    // create path reachable over IPC.
     if (!skylanders::portal::SaveFigureFileAtomic(path, data)) return "error cannot create file\n";
     return "ok\n";
   }
