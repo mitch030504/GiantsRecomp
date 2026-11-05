@@ -238,6 +238,25 @@ class ServerTestBase(unittest.TestCase):
 
 
 class ServerIntegrationTests(ServerTestBase):
+    def test_create_retry_is_idempotent(self):
+        host = udp_socket()
+        self.addCleanup(host.close)
+        nonce = secrets.randbits(64)
+        packet = gr.encode_create(nonce, 1, BUILD_ID, GAMEPLAY_PORT)
+
+        def acknowledgement(reply):
+            status, relay_port, room, _ttl = struct.unpack_from(">IH8sH", reply, 15)
+            return status, relay_port, room
+
+        first = acknowledgement(self.rpc(host, packet))
+        second = acknowledgement(self.rpc(host, packet))
+        self.assertEqual(first, second)
+        self.assertEqual(first[0], gr.STATUS_OK)
+        third = acknowledgement(
+            self.rpc(host, gr.encode_create(nonce ^ 1, 1, BUILD_ID, GAMEPLAY_PORT)))
+        self.assertEqual(third[0], gr.STATUS_OK)
+        self.assertNotEqual(first[2], third[2])
+
     def test_create_join_and_unknown_room(self):
         host = udp_socket()
         self.addCleanup(host.close)
