@@ -151,7 +151,7 @@ motion guide is then enabled automatically. The flags and the measured cost are 
 | No sound on KDE | Check **Giants Recompiled** in the audio mixer. Older native builds shared the **SDL Application** mute setting with other SDL apps. |
 | It's slow or stuttery | Use the **Release** build. Some stutter the first time an effect shows up is normal and gets better the second time. Cutscenes are the heaviest part. |
 | Ultrawide: the picture or HUD looks stretched | Set `resolution` to your monitor's resolution (or `"native"`), since that's what the ultrawide fixes use. Cutscene movies still stretch for now. |
-| Linux: the screen has a red tint | Known bug, and it isn't fixed yet. It shows up from the title screen onward. |
+| Linux: the screen has a red tint | **Reported, not reproduced.** It has not appeared on Intel ANV or AMD RADV here. If you see it, please attach a screenshot or RenderDoc capture plus your GPU, driver/Mesa version, `present_effect`, and whether HDR or colour management is active. |
 | Linux laptop: it runs slowly | The automatic GPU pick can land on the integrated GPU. Set `vulkan_device` to your discrete GPU's index. |
 
 ---
@@ -169,7 +169,7 @@ motion guide is then enabled automatically. The flags and the measured cost are 
 **Not there yet**
 - It can be slow, especially in the Debug build
 - Modes other than Story haven't been tested
-- **Linux** builds and runs, but it's rougher than Windows: noticeably slower on the same hardware, plus the red tint bug above
+- **Linux** builds and runs, but it's rougher than Windows: noticeably slower on the same hardware, plus a reported red tint that hasn't reproduced here
 - **macOS** has build presets, but nobody has tried it yet
 
 ---
