@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <imgui.h>
@@ -12,6 +14,7 @@
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/system.h>
+#include <rex/ui/display_mode.h>
 #include <rex/ui/dlss5_amd.h>
 #include <rex/ui/windowed_app_context.h>
 #include <rex/ui/imgui_dialog.h>
@@ -76,6 +79,22 @@ bool CvarIntSlider(const char* label, const char* name, int min, int max) {
     return true;
   }
   return false;
+}
+
+// Combo for an int cvar with explicit (label, value) entries, applied live.
+bool CvarIntCombo(const char* label, const char* name,
+                  const std::vector<std::pair<std::string, int32_t>>& entries) {
+  const std::string current = rex::cvar::GetFlagByName(name);
+  int index = 0;
+  for (size_t i = 0; i < entries.size(); ++i) {
+    if (std::to_string(entries[i].second) == current) { index = int(i); break; }
+  }
+  bool changed = ImGui::Combo(label, &index, [](void* data, int i) {
+    return static_cast<const std::vector<std::pair<std::string, int32_t>>*>(data)
+        ->at(size_t(i)).first.c_str();
+  }, const_cast<void*>(static_cast<const void*>(&entries)), int(entries.size()));
+  if (changed) rex::cvar::SetFlagByName(name, std::to_string(entries[size_t(index)].second));
+  return changed;
 }
 
 bool CvarDoubleSlider(const char* label, const char* name, double min, double max, const char* fmt) {
@@ -159,15 +178,43 @@ class GameMenuDialog : public ImGuiDialog, public WindowInputListener {
     });
   }
 
+  // Frame rate limit combo: -1 (unlimited) and 0 (default) are always offered, plus the usual
+  // caps. When the native display mode is known, no positive entry exceeds the display refresh
+  // rate (GetEffectiveFrameRateLimit clamps there anyway; the menu just doesn't offer values
+  // the host would clamp). Unlimited stays available regardless.
+  void DrawFrameRateLimitCombo() {
+    int32_t native_width = 0;
+    int32_t native_height = 0;
+    double native_refresh_hz = 0.0;
+    const bool have_native_mode =
+        rex::ui::display_mode::GetNativeDisplayMode(native_width, native_height,
+                                                     native_refresh_hz) &&
+        native_refresh_hz > 0.0;
+    const int32_t refresh_cap = have_native_mode ? int32_t(std::lround(native_refresh_hz)) : 0;
+    std::vector<std::pair<std::string, int32_t>> entries;
+    entries.emplace_back("Unlimited (-1)", -1);
+    entries.emplace_back("Default (0)", 0);
+    for (const int32_t value : {30, 60, refresh_cap, 120, 240}) {
+      if (value <= 0) continue;  // no native display mode known: skip the refresh entry
+      if (have_native_mode && value > refresh_cap) continue;  // never above the display refresh
+      const auto duplicate = std::find_if(
+          entries.begin(), entries.end(),
+          [&](const std::pair<std::string, int32_t>& entry) { return entry.second == value; });
+      if (duplicate != entries.end()) continue;
+      entries.emplace_back(std::to_string(value), value);
+    }
+    CvarIntCombo("Frame rate limit", "frame_rate_limit", entries);
+  }
+
   void DrawGraphics() {
     ImGui::TextDisabled("Changes marked [restart] apply on the next launch.");
     ImGui::Spacing();
     CvarCombo("Window resolution [restart]", "resolution",
-              {"", "720p", "1080p", "1440p", "4k", "1280x720", "1920x1080", "2560x1440",
+              {"", "native", "720p", "1080p", "1440p", "4k", "1280x720", "1920x1080", "2560x1440",
                "3440x1440", "3840x2160"});
     CvarDoubleSlider("Render scale", "resolution_scale", 1.0, 8.0, "%.0fx");
     CvarCombo("Graphics API [restart]", "gpu_backend", {"auto", "d3d12", "vulkan"});
-    CvarIntSlider("Frame rate limit (0 = off)", "frame_rate_limit", 0, 240);
+    DrawFrameRateLimitCombo();
     CvarCombo("Present effect [restart]", "present_effect",
               {"bilinear", "cas", "fsr", "fsr2", "fsr3"});
     if (rex::cvar::GetFlagByName("present_effect") == "fsr3") {

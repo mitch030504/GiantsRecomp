@@ -93,9 +93,9 @@ The easiest way to change settings is to press **F4** in-game. Everything is sav
 | `portal_ipc_port` | TCP port for the portal IPC server. Default is `28014`. |
 | `gpu_backend` | Graphics API: `"auto"` (default, D3D12 on Windows), `"d3d12"` or `"vulkan"`. Windows has both; Linux has Vulkan only. To get D3D12 on Linux, run the Windows build through Proton or Wine. If the chosen one can't start, the game uses the other. You can switch it in F4 → GPU and press **Restart now**. |
 | `gpu_allow_invalid_fetch_constants` | Fixes parts of the scene (or the whole screen) showing up blank. Recommended until I find the real cause. |
-| `resolution` | Window size when the game starts, like `"3440x1440"` or `"4k"`. |
+| `resolution` | Window size when the game starts: a preset (`"480p"`, `"720p"`, `"1080p"`, `"1440p"`, `"2160p"`/`"4k"`, ...), a custom `"WxH"` like `"3440x1440"`, or `"native"`/`"display"` for the selected monitor's current mode. Values larger than the display are scaled down to fit it, preserving aspect (never upscaled). |
 | `resolution_scale` | Renders at 1x to 8x before scaling down to your screen. Looks sharper but is harder on your GPU. Default is `1`. |
-| `frame_rate_limit` | Caps the FPS. `0` (the default) means no limit. |
+| `frame_rate_limit` | Caps the FPS (and the guest's own tick rate) to `N`. `-1` = unlimited, `0` (the default) = safe 30 Hz guest tick, `N > 0` = capped at `N`, clamped to the display's refresh rate. |
 | `temporal_upscaler` | Which upscaler `present_effect = "fsr3"` uses: `"fsr"` (default; FSR 4 on supported AMD cards in the Windows version, FSR 3.1 otherwise), `"xess"` (Intel XeSS, Windows version only) or `"dlss"` (NVIDIA DLSS, RTX cards, Linux and Windows). If the choice can't run on your GPU, the game uses FSR. Needs a restart. |
 | `present_effect` | How the picture is scaled to your window: `"bilinear"` (default), or `"cas"` / `"fsr"` for a sharper image. With `"cas"`, `present_cas_additional_sharpness` (`0.0` to `1.0`) adds more. `"fsr3"` is temporal upscaling from a lower render size such as `video_mode_width/height = 1920x1080` in a 4K window; see `temporal_upscaler` and [docs/upscaling.md](docs/upscaling.md). |
 | `ui_scale` | Makes the F3/F4/F6/F7 overlays bigger or smaller. Try `1.5` or higher on a big or high-res monitor. Default is `1.0`. |
@@ -146,7 +146,7 @@ game's authored 1000×600 scene resolution.
 | Overlay text is too small | Raise `ui_scale` in the F4 menu. |
 | No sound on KDE | Check **Giants Recompiled** in the audio mixer. Older native builds shared the **SDL Application** mute setting with other SDL apps. |
 | It's slow or stuttery | Use the **Release** build. Some stutter the first time an effect shows up is normal and gets better the second time. Cutscenes are the heaviest part. |
-| Ultrawide: the picture or HUD looks stretched | Set `resolution` to your monitor's resolution, since that's what the ultrawide fixes use. Cutscene movies still stretch for now. |
+| Ultrawide: the picture or HUD looks stretched | Set `resolution` to your monitor's resolution (or `"native"`), since that's what the ultrawide fixes use. Cutscene movies still stretch for now. |
 | Linux: the screen has a red tint | Known bug, and it isn't fixed yet. It shows up from the title screen onward. |
 | Linux laptop: it runs slowly | The automatic GPU pick can land on the integrated GPU. Set `vulkan_device` to your discrete GPU's index. |
 

@@ -9,9 +9,12 @@ portal_ipc = true                         # serve the Omoio/Cemu-compatible port
 # portal_ipc_port = 28014                 # TCP port for the portal IPC server
 
 ["Graphics"]
-resolution = "1920x1080"                  # startup window size
+resolution = "1920x1080"                  # startup window size: a preset ("720p".."4k"), a custom
+                                           # "WxH", or "native" = the monitor's current mode; larger
+                                           # than the display is scaled down to fit (never upscaled)
 resolution_scale = 2                      # 1-8 supersample multiplier, 1 = off
-frame_rate_limit = 60                     # 0 = unlimited
+frame_rate_limit = 60                     # -1 = unlimited, 0 = 30 Hz safe default, N > 0 = cap at N
+                                           # (clamped to the display refresh rate)
 gpu_allow_invalid_fetch_constants = true  # works around a GPU quirk, on by default
 ultrawide_fov = true                      # widen camera FOV to match resolution's aspect ratio
 ultrawide_hud = true                      # lay out the HUD and menus for the real screen width

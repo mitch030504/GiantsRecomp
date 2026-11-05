@@ -7,9 +7,12 @@ portal_figures_dir = ""                   # empty = "figures" next to your saves
 # portal_figure = "C:\\path\\to\\Skylander.dump"  # loads this dump onto the portal at startup
 
 ["Graphics"]
-resolution = "__RESOLUTION__"             # startup window size
+resolution = "__RESOLUTION__"             # startup window size: a preset ("720p".."4k"), a custom
+                                           # "WxH", or "native" = the monitor's current mode; larger
+                                           # than the display is scaled down to fit (never upscaled)
 resolution_scale = __RESOLUTION_SCALE__   # 1-8 supersample multiplier, 1 = off
-frame_rate_limit = 60                     # 0 = unlimited
+frame_rate_limit = 60                     # -1 = unlimited, 0 = 30 Hz safe default, N > 0 = cap at N
+                                           # (clamped to the display refresh rate)
 gpu_allow_invalid_fetch_constants = true  # works around a GPU quirk, on by default
 # vulkan_device = -1                      # GPU index for multi-GPU systems, -1 = auto-pick
 

@@ -51,8 +51,8 @@ REX_HOOK_RAW(BuildOrthographicProjectionMatrix) {
   int32_t width = 0;
   int32_t height = 0;
   if (!giantsrecomp::netplay::Enabled() && REXCVAR_GET(ultrawide_hud) && uint32_t(ctx.lr) == 0x8219118C &&
-      rex::graphics::video_mode_util::TryParseResolutionPreset(REXCVAR_GET(resolution), width,
-                                                                height) &&
+      rex::graphics::video_mode_util::TryResolveResolutionPreset(REXCVAR_GET(resolution), width,
+                                                                 height) &&
       width > 0 && height > 0) {
     using rex::memory::load_and_swap;
     const double aspect = double(width) / double(height);
@@ -94,8 +94,8 @@ REX_HOOK_RAW(BuildPerspectiveProjectionMatrix) {
   if (!giantsrecomp::netplay::Enabled() && REXCVAR_GET(ultrawide_fov)) {
     int32_t width = 0;
     int32_t height = 0;
-    if (rex::graphics::video_mode_util::TryParseResolutionPreset(REXCVAR_GET(resolution), width,
-                                                                  height) &&
+    if (rex::graphics::video_mode_util::TryResolveResolutionPreset(REXCVAR_GET(resolution), width,
+                                                                   height) &&
         width > 0 && height > 0) {
       const double left = ctx.f1.f64;
       const double right = ctx.f2.f64;
