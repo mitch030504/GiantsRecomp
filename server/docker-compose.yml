@@ -1,0 +1,51 @@
+# Giants netplay relay -- self-hosted, bridge networking, non-root, read-only.
+#
+# Deploy:  docker compose up -d --build
+# Update:  docker compose up -d --build   (after copying the new files)
+#
+# GIANTS_PUBLIC_IP is required: it is the public IPv4 players send UDP to.
+# GIANTS_ADVERTISE_IP overrides the address returned in JOIN_ACK (set it to
+# the relay host's LAN IP, e.g. 192.168.8.2, for testing before the router
+# forwards the public ports).
+services:
+  giants-relay:
+    build: .
+    image: giants-relay:latest
+    container_name: giants-relay
+    restart: unless-stopped
+    # Bridge networking; publish only the control port and the relay range.
+    ports:
+      - "${GIANTS_CONTROL_PORT:-32200}:${GIANTS_CONTROL_PORT:-32200}/udp"
+      - "${GIANTS_RELAY_MIN:-41100}-${GIANTS_RELAY_MAX:-41199}:${GIANTS_RELAY_MIN:-41100}-${GIANTS_RELAY_MAX:-41199}/udp"
+    environment:
+      GIANTS_PUBLIC_IP: "${GIANTS_PUBLIC_IP:?set GIANTS_PUBLIC_IP to the server's public IPv4 in .env}"
+      GIANTS_ADVERTISE_IP: "${GIANTS_ADVERTISE_IP:-}"
+      GIANTS_CONTROL_PORT: "${GIANTS_CONTROL_PORT:-32200}"
+      GIANTS_RELAY_MIN: "${GIANTS_RELAY_MIN:-41100}"
+      GIANTS_RELAY_MAX: "${GIANTS_RELAY_MAX:-41199}"
+      GIANTS_TTL: "${GIANTS_TTL:-30}"
+      GIANTS_MAX_SESSIONS: "${GIANTS_MAX_SESSIONS:-100}"
+      GIANTS_RATE_PER_SECOND: "${GIANTS_RATE_PER_SECOND:-50}"
+      GIANTS_RATE_BURST: "${GIANTS_RATE_BURST:-100}"
+      GIANTS_LOG_LEVEL: "${GIANTS_LOG_LEVEL:-INFO}"
+    # Container hardening: no root, no capabilities, no writable rootfs.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 5s
+    healthcheck:
+      test: ["CMD", "python", "/app/giants_relay.py", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    # Structured JSON logs to stdout, rotated (docker logs giants-relay).
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
