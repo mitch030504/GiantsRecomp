@@ -100,6 +100,12 @@ control. If no 1024 host run exists, every host run must fail.
   `application.name` is the unique `SDL_APP_NAME`, or its process is a descendant of this run's
   gamescope. Only that owned stream is moved; only that stream is defensively unmuted if it was
   muted. No other stream is touched.
+* With SDL's PipeWire backend the game has no Pulse sink-input at all, and PipeWire's stream-restore
+  can leave it on a stale sink (observed: `giants_nr_sub_*`). The harness then relinks only the node
+  named by its unique `SDL_APP_NAME` (output FL/FR) to the private sink with `pw-link`.
+* At analysis time, leading and trailing exact-zero frames are trimmed before the dropout metrics and
+  reported separately as `lead_silence_s` / `tail_silence_s`: boot/menu silence is not a dropout.
+  Silence between non-zero samples still counts.
 * Cleanup traps `EXIT INT TERM HUP`: it stops the game and recorder, unloads only the module id it
   loaded, and verifies the default sink name, mute and volume. A failed verification makes the
   harness exit non-zero.

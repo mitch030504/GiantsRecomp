@@ -351,6 +351,34 @@ PY
   )
 }
 
+# PipeWire-native fallback: SDL can use the PipeWire backend, in which case the stream is not a
+# Pulse sink-input and stream-restore may route it to a stale sink (observed: giants_nr_sub_*).
+# Relink only the node whose name is this run's unique SDL_APP_NAME to the private sink.
+route_pipewire_stream() {
+  local dir=$1
+  command -v pw-link >/dev/null 2>&1 || return 0
+  pw-cli ls Node 2>/dev/null | grep -Fq "node.name = \"$app_name\"" || return 0
+  local ch port dest old linked
+  for ch in FL FR; do
+    port="$app_name:output_$ch"
+    dest="$sink_name:playback_$ch"
+    linked=0
+    if pw-link -l 2>/dev/null | grep -A1 -Fx "$port" | grep -Fq "|-> $dest"; then
+      linked=1
+    else
+      while IFS= read -r old; do
+        [[ -z $old ]] && continue
+        pw-link -d "$port" "$old" 2>>"$dir/routing.log" || true
+      done < <(pw-link -l 2>/dev/null | awk -v p="$port" '$0 == p { getline; if ($1 == "|->") print $2 }')
+      if pw-link "$port" "$dest" 2>>"$dir/routing.log"; then
+        echo "$(date -u +%H:%M:%S) linked $port -> $dest" >>"$dir/routing.log"
+        linked=1
+      fi
+    fi
+    [[ $linked == 1 ]] && routed=1
+  done
+}
+
 write_metadata() {
   local dir=$1 mode=$2 sf=$3 fps_limit=$4 lock_hz=$5 guest_paced=$6 sched=$7
   local csv=$8 started=$9 ended=${10} early=${11} deadline=${12} game_exit=${13} routed=${14}
@@ -568,11 +596,13 @@ PY
   # quickly until the owned stream is seen, then rarely enough to keep the probe out of the way.
   local poll_delay=0.2
   route_owned_stream "$dir"
+  route_pipewire_stream "$dir"
   while kill -0 "$game_pgid" 2>/dev/null; do
     if (( $(date +%s) >= deadline_at )); then
       break
     fi
     route_owned_stream "$dir"
+    route_pipewire_stream "$dir"
     if ((routed)); then poll_delay=2; else poll_delay=0.2; fi
     sleep "$poll_delay"
   done

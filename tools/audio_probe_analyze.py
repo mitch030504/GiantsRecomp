@@ -266,7 +266,21 @@ def click_metrics(frames, rate):
 
 
 def analyze_frames(frames, rate, lag_min, lag_max):
+    # Boot/menu silence is not a dropout: trim contiguous exact-zero frames at both ends and
+    # report their duration separately. In-audio gaps (between non-zero samples) still fail.
+    raw_n = frames.shape[0]
+    nonzero = np.flatnonzero(np.any(frames != 0.0, axis=1))
+    if nonzero.size:
+        lead = int(nonzero[0])
+        tail = raw_n - int(nonzero[-1]) - 1
+        frames = frames[lead:raw_n - tail]
+    else:
+        lead, tail = raw_n, 0
     n = frames.shape[0]
+    if n == 0:
+        # An all-silent capture is a failed run, not a division by zero.
+        frames = np.zeros((1, frames.shape[1]), dtype=np.float32)
+        n = 1
     zero = np.all(frames == 0.0, axis=1)
     zero_runs = run_lengths(zero)
     zero_max_ms = float(zero_runs.max() / rate * 1000.0) if zero_runs.size else 0.0
@@ -274,6 +288,8 @@ def analyze_frames(frames, rate, lag_min, lag_max):
     metrics = {
         'frames': int(n),
         'seconds': float(n / rate),
+        'lead_silence_s': float(lead / rate),
+        'tail_silence_s': float(tail / rate),
         'zero_share': float(zero.mean()),
         'zero_run_count': int(zero_runs.size),
         'zero_max_run_ms': zero_max_ms,
