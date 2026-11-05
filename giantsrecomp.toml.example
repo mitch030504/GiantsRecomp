@@ -34,7 +34,8 @@ anisotropic_override = 5                  # texture filtering: 5 = 16x, 3 = 4x, 
                                            # motion_guide automatically; see docs/upscaling.md)
 # fsr4 = false                           # Linux/AMD: FSR 4.1.2 via a user-built amd_fidelityfx_upscaler_vk.so
                                            # (from your own FidelityFX SDK v2.4.0 DLL; never shipped)
-# fsr4_data_path = ""                    # folder with that .so; empty = next to the executable
+# fsr4_data_path = ""                    # folder with that .so (and its fsr4-assets/); empty = next
+#                                        # to the executable. The .so and assets are never packaged.
 
 ["UI"]
 # ui_scale = 1.5                          # ImGui overlay font/widget scale

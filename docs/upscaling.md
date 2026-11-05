@@ -90,12 +90,29 @@ cross-compiled Windows build (`tools/windows_cross.sh`).
 
 ## FSR 4.1.2 on native Linux (Track 4)
 
-**Current state:** the native Linux build upscales with **FSR 3.1.4**, built from source from the
-SDK 1.1.4 fork (`rexglue_fidelityfx.cmake`); the Windows build uses AMD's prebuilt FidelityFX SDK
-2.4 DLLs, which run **FSR 4.1.2** where the GPU and driver support it (see the Proton section
-above). FSR 4 has no public source at SDK v2.4.0 — `Kits/FidelityFX/upscalers/` is FSR 3 only and
-the FSR 4 code ships solely as signed Windows DLLs under `signedbin/` — so a native Linux FSR 4
-needs extracted assets plus a runtime.
+**Current state: working.** A user-built FSR 4.1.2 Vulkan provider runs natively on Linux and
+beats the FSR 3.1.4 baseline. The default build still upscales with **FSR 3.1.4**, built from
+source from the SDK 1.1.4 fork (`rexglue_fidelityfx.cmake`); the Windows build uses AMD's prebuilt
+FidelityFX SDK 2.4 DLLs, which run **FSR 4.1.2** where the GPU and driver support it (see the
+Proton section above). FSR 4 has no public source at SDK v2.4.0 — `Kits/FidelityFX/upscalers/` is
+FSR 3 only and the FSR 4 code ships solely as signed Windows DLLs under `signedbin/` — so a native
+Linux FSR 4 needs extracted assets plus a runtime.
+
+**How to use the user-built provider.** Build an fsr4-vk-style provider from your own copy of the
+SDK v2.4.0 DLL (the Sega Superstars Tennis port's `linux/` tree is one such build) and place it
+next to the executable, or point `fsr4_data_path` at its folder:
+
+```bash
+--fsr4=true --temporal_upscaler=fsr --fsr4_data_path=/path/to/provider
+```
+
+The folder must contain the provider `.so` under either name (`amd_fidelityfx_upscaler_vk.so` or
+`libamd_fidelityfx_upscaler_vk.so`) and its `fsr4-assets/` tree (1,778 SPIR-V modules and
+`models/FP8_standard.bin`); `FSR4_ASSET_DIR` overrides the asset location. The device must expose
+Vulkan 1.3 plus `VK_KHR_cooperative_matrix` and `VK_EXT_shader_float8` with an e4m3 16x16x16
+subgroup matrix; the log names the missing feature and the presenter then falls back to FSR 3.1.4
+(otherwise it falls back to spatial FSR). The F9 menu and the log report which provider is active
+(`FidelityFX upscaler provider FSR 4.1.2`).
 
 **Routes, in order:**
 
@@ -119,16 +136,22 @@ the vk DLL's blobs are compressed.
 extracted from the v2.4.0 DLL are AMD-MIT derivatives — user-supplied, runtime-loaded, never
 committed or packaged. fsr4-vk itself is **GPL-3.0-only**; none of its code is vendored into this
 MIT repository, and a user-built .so stays on the user's machine. The `justfile` packaging recipes
-(`package-installer`, `package-linux`) refuse to package `amd_fidelityfx_upscaler_vk.so` (and the
-`.dll` names in the Linux tarball) or any fsr4-vk `build/linux`, `build/windows`, or `assets/` tree
-found under `installer/staging/` or `dist/`.
+(`package-installer`, `package-linux`) refuse to package `amd_fidelityfx_upscaler_vk.so` /
+`libamd_fidelityfx_upscaler_vk.so` / the loader `.so` (and the `.dll` names in the Linux tarball),
+or any `fsr4-assets/` tree, or any fsr4-vk `build/linux`, `build/windows`, or `assets/` tree found
+under `installer/staging/` or `dist/`.
 
-**TODO — fill in after the Track 4 runs:**
+**Measured on the RX 9070 XT (RADV, 2026-11-05):** the provider reports `FSR 4.1.2` and upscales
+1080p -> 4K. Full-frame PSNR against the native-4K render, frames 300-570 of the title screen with
+the shipped jitter sign: **FSR 4.1.2 38.32 dB mean vs FSR 3.1.4 35.08 dB** (+3.2 dB, 10 frames).
+The edge-weighted error is mixed per frame (better on most, worse on two), which is why the
+jitter-sign sweep below is still worth running. This is a direct full-frame comparison; the
+`tools/upscaler_ab.sh` masked table needs a longer run than the 24 s used here.
 
-- A/B table: `tools/upscaler_ab.sh` FSR4 1080p->4K vs the FSR 3.1 baseline above (title 36.08 dB /
-  edge 6.32) vs native 4K. _(placeholder — no FSR4-native-Linux runs yet)_
-- Jitter-sign rows: all four `temporal_jitter_flip` runs with `fsr4 = true` on native Linux (the
-  shipped sign was best of the four for FSR 4.1.2 under Proton, +1.5 to +5.8 dB). _(placeholder)_
+**Still to measure:** all four `temporal_jitter_flip` runs with `fsr4 = true` on native Linux (the
+shipped sign was best of the four for FSR 4.1.2 under Proton, +1.5 to +5.8 dB), the masked
+`upscaler_ab.sh` table with the full 36 s runs, and the in-game GPU cost (the Phase 0 runner
+measured 0.64-1.6 ms at 1080p->4K; we have not added timestamps to the in-engine dispatch yet).
 
 ## Live neural rendering (development)
 

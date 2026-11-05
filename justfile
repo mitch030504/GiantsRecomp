@@ -137,7 +137,7 @@ package-installer: build-release
     iscc="/c/Program Files (x86)/Inno Setup 6/ISCC.exe" && \
     [ -e "$iscc" ] || iscc="$USERPROFILE/AppData/Local/Programs/Inno Setup 6/ISCC.exe" && \
     [ -e "$iscc" ] || (echo "ISCC.exe not found -- install Inno Setup 6 (winget install JRSoftware.InnoSetup)" && exit 1) && \
-    ! find installer/staging -type f \( -name 'dlssnr*.bin' -o -name 'nvngx_dlssnr.dll' -o -name 'nvngx.dll' -o -name '_nvngx.dll' -o -name 'amd_fidelityfx_upscaler_vk.so' -o -name 'amd_fidelityfx_upscaler_vk.dll' -o -name 'amd_fidelityfx_upscaler_dx12.dll' -o -path '*/build/linux/*' -o -path '*/build/windows/*' -o -path '*/assets/*' \) -not -path 'installer/staging/amd_fidelityfx_upscaler_*.dll' | grep -q . && \
+    ! find installer/staging -type f \( -name 'dlssnr*.bin' -o -name 'nvngx_dlssnr.dll' -o -name 'nvngx.dll' -o -name '_nvngx.dll' -o -name 'amd_fidelityfx_upscaler_vk.so' -o -name 'libamd_fidelityfx_upscaler_vk.so' -o -name 'libamd_fidelityfx_loader_vk.so' -o -name 'amd_fidelityfx_upscaler_vk.dll' -o -name 'amd_fidelityfx_upscaler_dx12.dll' -o -path '*/fsr4-assets/*' -o -path '*/build/linux/*' -o -path '*/build/windows/*' -o -path '*/assets/*' \) -not -path 'installer/staging/amd_fidelityfx_upscaler_*.dll' | grep -q . && \
     "$iscc" installer/GiantsRecomp.iss && \
     echo "Installer built at installer/Output/GiantsRecompSetup.exe"
 
@@ -154,7 +154,7 @@ package-linux: build-release
     cp {{ sdk_lib_dir }}/*.so "$dist/" && \
     for extra in out/build/linux-amd64-release/libnvidia-ngx-dlss.so.* out/build/linux-amd64-release/*_license.* out/build/linux-amd64-release/*_source.tar.gz; do [ -e "$extra" ] && cp "$extra" "$dist/" || true; done && \
     cp installer/linux-setup.sh installer/70-portal-of-power.rules installer/settings_template.toml "$dist/" && \
-    ! find "$dist" -type f \( -name 'dlssnr*.bin' -o -name 'nvngx_dlssnr.dll' -o -name 'nvngx.dll' -o -name '_nvngx.dll' -o -name 'amd_fidelityfx_upscaler_vk.so' -o -name 'amd_fidelityfx_upscaler_vk.dll' -o -name 'amd_fidelityfx_upscaler_dx12.dll' -o -path '*/build/linux/*' -o -path '*/build/windows/*' -o -path '*/assets/*' \) | grep -q . && \
+    ! find "$dist" -type f \( -name 'dlssnr*.bin' -o -name 'nvngx_dlssnr.dll' -o -name 'nvngx.dll' -o -name '_nvngx.dll' -o -name 'amd_fidelityfx_upscaler_vk.so' -o -name 'libamd_fidelityfx_upscaler_vk.so' -o -name 'libamd_fidelityfx_loader_vk.so' -o -name 'amd_fidelityfx_upscaler_vk.dll' -o -name 'amd_fidelityfx_upscaler_dx12.dll' -o -path '*/fsr4-assets/*' -o -path '*/build/linux/*' -o -path '*/build/windows/*' -o -path '*/assets/*' \) | grep -q . && \
     tar -C dist -czf dist/giantsrecomp-linux-amd64.tar.gz giantsrecomp-linux-amd64 && \
     echo "Packaged dist/giantsrecomp-linux-amd64.tar.gz"
 
