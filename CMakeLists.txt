@@ -38,8 +38,10 @@ if(WIN32)
 endif()
 add_library(giantsrecomp_netplay STATIC src/netplay/session.cpp src/netplay/lobby.cpp
     src/netplay/lockstep.cpp src/netplay/save_snapshot.cpp src/netplay/state_digest.cpp)
-target_include_directories(giantsrecomp_netplay PUBLIC src PRIVATE thirdparty/enet/include
-    thirdparty/rexglue-sdk/thirdparty/xxHash)
+# lobby.h exposes ENet types (the relay runs through the ENet socket), so consumers need the
+# enet include path as well; xxHash is only needed to compile state_digest.cpp.
+target_include_directories(giantsrecomp_netplay PUBLIC src thirdparty/enet/include
+    PRIVATE thirdparty/rexglue-sdk/thirdparty/xxHash)
 find_package(Threads REQUIRED)
 target_link_libraries(giantsrecomp_netplay PUBLIC enet Threads::Threads)
 
