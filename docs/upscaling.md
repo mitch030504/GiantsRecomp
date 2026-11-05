@@ -221,10 +221,11 @@ change.
 
 - The title screen is a soft scene. Repeat the A/B in gameplay, which has hard static edges, once
   input replay can get there.
-- Motion vectors from block matching can't separate moving objects from the background well. The
-  engine guide is being built to replace them for NR (see `.ai/plans/` and
-  `.ai/conversations/sessions/2026-11-03/225000-opencode-stable-placement.md`): static and panning
-  windows now pass its gate, and it is still development-only.
+- Motion vectors from block matching can't separate moving objects from the background well, so the
+  shipping upscaler still uses them. Live NR (`dlss5_amd_mode=3`) uses the engine guide, with the
+  guest depth, instead: static and panning windows pass its gate, and it is still development-only
+  (see `.ai/plans/` and
+  `.ai/conversations/sessions/2026-11-03/225000-opencode-stable-placement.md`).
 - Enable the deterministic scheduler for frame-locked benchmarks and check native repeatability
   in each scene before interpreting image-quality numbers (see the d4r results below).
 - Native NGX is only verified to fall back cleanly here (no RTX card): its jitter sign and image quality
@@ -232,8 +233,8 @@ change.
   DLSS 5 has two separate Linux paths: the NVIDIA DLSS5VKLayer on the finished picture, and the
   native DLSSNR-AMD integration (development build, RDNA4) on the pre-HUD scene. The native runtime
   has been proved on a one-shot captured frame (real engine motion/depth, 1920x1080, small model)
-  and constructs in-engine; the live composition seam and HUD bypass are not wired yet. See the
-  README.
+  and constructs in-engine; live mode 3 now runs it per guest frame at the composition seam, passes
+  a 600 s gate, and draws the HUD afterwards, outside the NR image. See the README.
 
 ## d4r under Proton (RX 9070 XT)
 
