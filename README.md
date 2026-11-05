@@ -178,6 +178,9 @@ motion guide is then enabled automatically. The flags and the measured cost are 
 
 Direct-IP co-op is under development on this branch and still needs full two-player and cross-machine validation. Start the host with
 `--netplay_host=true` and the client with `--netplay_connect=HOST_IPV4:24872`.
+For WAN play without a port forward, run the self-hosted relay in `server/` and use
+`--netplay_host=true --netplay_lobby=RELAY:32200` on the host, then
+`--netplay_lobby=RELAY:32200 --netplay_room=ROOMCODE` on the client.
 The host shares its save files at startup; the client's own saves remain isolated.
 Both peers need compatible builds. See [setup and limitations](docs/netplay.md).
 

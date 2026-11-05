@@ -32,11 +32,43 @@ Client (replace the address with the host's numeric IPv4):
 giantsrecompiled --netplay_connect=192.168.1.10:24872
 ```
 
-The transport uses ENet 1.3.18 over UDP. Use trusted peers on a trusted network: this initial
-transport has no authentication or encryption, matchmaking, NAT traversal or relay. The host
-waits up to `netplay_timeout_seconds` (default 60) for a client. A UDP port forward or VPN is
-needed for hosts outside the same LAN. Hosting/joining is selected at process launch; F8 shows
-connection status, ping and delay, and F6 controls figures. Restart both games to reconnect.
+The direct transport uses ENet 1.3.18 over UDP. Use trusted peers: ENet has no authentication or
+encryption. Without the relay below, direct play outside the LAN needs a UDP port forward or VPN.
+The host waits up to `netplay_timeout_seconds` (default 60) for a client. Hosting/joining is
+selected at process launch; F8 shows connection status, ping and delay, and F6 controls figures.
+Restart both games to reconnect.
+
+### Self-hosted relay (WAN without a VPN)
+
+A small relay lets two players connect without a port forward or VPN. The host creates a room and
+gets an eight-character code; the client joins that code. The relay forwards opaque ENet datagrams
+between exactly the two endpoints it learned for the room; it never parses gameplay state. This is
+the same model as the Sega Superstars Tennis ReMatch server, adapted to Giants' ENet transport.
+
+Server: `server/` (Python standard library only, Docker). On Unraid, copy `server/` to
+`/root/giants-relay`, set `GIANTS_PUBLIC_IP` in `.env`, and run `docker compose up -d --build`.
+It publishes **UDP 32200** (control) and **UDP 41100-41199** (one socket per room); forward both to
+the host. The container is non-root, read-only, drops all capabilities and has a UDP healthcheck.
+Health from outside: send a 15-byte `GRLY` health datagram (kind 7) and expect kind 8.
+
+Host:
+
+```sh
+giantsrecompiled --netplay_host=true --netplay_lobby=<relay-host>:32200
+```
+
+The room code is logged and shown in F8/F9. Client:
+
+```sh
+giantsrecompiled --netplay_lobby=<relay-host>:32200 --netplay_room=A1B2C3D4
+```
+
+Settings: `netplay_lobby` (`host:port`, empty = direct), `netplay_relay` (`auto` or `off`), and
+`netplay_room` (client only, eight hex characters). Direct mode is unchanged when `netplay_lobby`
+is empty. The relay removes the NAT problem, **not** the trust problem: ENet still has no
+authentication or encryption, so only play with people you trust, and do not port-forward 24872
+directly. The relay binds each room to two endpoints, rate-limits per source, and expires idle
+rooms after 30 s.
 The window remains responsive while waiting for the handshake.
 
 The host selects `netplay_delay` (default 3, range 0–12), measured in player 1 controller reads,
