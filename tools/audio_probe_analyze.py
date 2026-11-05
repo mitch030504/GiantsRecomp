@@ -395,14 +395,21 @@ def apply_click_checks(runs, wall_reference):
             continue
         if wall_reference > 0:
             ratio = metrics['click_proxy'] / wall_reference
+            infinite = False
+        elif metrics['click_proxy'] == 0:
+            ratio = 0.0
+            infinite = False
         else:
-            ratio = 0.0 if metrics['click_proxy'] == 0 else math.inf
+            ratio = math.inf
+            infinite = True
         passed = metrics['click_proxy'] <= CLICK_FACTOR * wall_reference
+        ratio_text = 'inf' if infinite else f'{ratio:.2f}'
         run['checks']['click'] = {
             'pass': passed,
-            'ratio': ratio,
+            'ratio': None if infinite else ratio,
+            'ratio_infinite': infinite,
             'detail': (f"{metrics['click_proxy']:.3f} vs wall "
-                       f"{wall_reference:.3f} = {ratio:.2f}x"),
+                       f"{wall_reference:.3f} = {ratio_text}x"),
         }
         if not passed:
             run['ok'] = False
@@ -424,6 +431,8 @@ def print_table(runs):
         ratio = click.get('ratio')
         if click.get('reference'):
             ratio_text = 'ref'
+        elif click.get('ratio_infinite'):
+            ratio_text = 'inf'
         elif ratio is None:
             ratio_text = '-'
         elif math.isinf(ratio):

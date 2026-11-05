@@ -16,9 +16,9 @@
 #   python3 -I tools/audio_probe_analyze.py out/tmp/audio-probe/<run>
 #
 # Safety: this creates one uniquely named PulseAudio null sink for the whole invocation and
-# records only its monitor. It never changes the default sink, mute or volume, and it unloads
-# only the module it loaded. A stream is moved (never the default sink) only when it is provably
-# ours: its application name is the unique SDL_APP_NAME set below, or its process is a
+# records only its monitor. It never changes the default sink or that sink's mute/volume, and it
+# unloads only the module it loaded. A stream is moved (never the default sink) only when it is
+# provably ours: its application name is the unique SDL_APP_NAME set below, or its process is a
 # descendant of the gamescope process this script started. Every run gets private saves and a
 # private figures directory.
 #
@@ -564,15 +564,17 @@ PY
   game_pgid=$!
 
   local deadline_at=$(( $(date +%s) + run_seconds ))
-  # SDL asks for the default playback device by path, so PULSE_SINK can be bypassed; the first
-  # poll happens immediately and then often enough that only a short routing gap is possible.
+  # SDL asks for the default playback device by path, so PULSE_SINK can be bypassed; poll
+  # quickly until the owned stream is seen, then rarely enough to keep the probe out of the way.
+  local poll_delay=0.2
   route_owned_stream "$dir"
   while kill -0 "$game_pgid" 2>/dev/null; do
     if (( $(date +%s) >= deadline_at )); then
       break
     fi
     route_owned_stream "$dir"
-    sleep 0.2
+    if ((routed)); then poll_delay=2; else poll_delay=0.2; fi
+    sleep "$poll_delay"
   done
 
   if kill -0 "$game_pgid" 2>/dev/null; then

@@ -150,10 +150,10 @@ analyses at most `--max-seconds` after that. Thresholds are the brief's:
 Details:
 
 * **Exact repeats** are bit-identical stereo frames, searched at every lag in 128..4096 over the
-  whole capture. The implementation sorts frame bit patterns and counts equal-frame pairs, so it
-  is exact rather than a sampled sweep and does not assume a particular lag. Zero frames are
-  excluded from both sides of the fraction. The dominant lag is printed with the top three lags;
-  if it equals the run's `sample_frames`, the report says so explicitly.
+  whole analysed capture. The implementation sorts frame bit patterns and counts equal-frame
+  pairs, so it is exact rather than a sampled sweep and does not assume a particular lag. Zero
+  frames are excluded from both sides of the fraction. The dominant lag is printed with the top
+  three lags; if it equals the run's `sample_frames`, the report says so explicitly.
 * **Run lengths** are maximal consecutive frames meeting the condition. A 1024-frame duplicated
   block is 21.33 ms; the 5 ms limit catches even a short splice. Repeat runs are checked at every
   lag that has enough pairs to form a >5 ms run, not only at the dominant lag.
