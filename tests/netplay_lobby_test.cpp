@@ -11,12 +11,12 @@ int main() {
   std::string host;
   uint16_t port = 0;
 
-  CHECK(ParseLobbyEndpoint("192.168.8.2:32200", host, port));
-  CHECK(host == "192.168.8.2" && port == 32200);
+  CHECK(ParseLobbyEndpoint("192.0.2.10:32200", host, port));
+  CHECK(host == "192.0.2.10" && port == 32200);
   CHECK(ParseLobbyEndpoint("matchmaking.example.com:41000", host, port));
   CHECK(host == "matchmaking.example.com" && port == 41000);
-  CHECK(ParseLobbyEndpoint("192.168.8.2", host, port));
-  CHECK(host == "192.168.8.2" && port == kDefaultLobbyPort);
+  CHECK(ParseLobbyEndpoint("192.0.2.10", host, port));
+  CHECK(host == "192.0.2.10" && port == kDefaultLobbyPort);
   CHECK(!ParseLobbyEndpoint(":32200", host, port));
   CHECK(!ParseLobbyEndpoint("host:0", host, port));
   CHECK(!ParseLobbyEndpoint("host:65536", host, port));
@@ -25,10 +25,10 @@ int main() {
   CHECK(!ParseLobbyEndpoint("bad host:32200", host, port));
 
   std::vector<std::pair<std::string, uint16_t>> endpoints;
-  CHECK(ParseLobbyEndpoints("192.168.8.2:32200;188.91.1.230:32200", endpoints));
+  CHECK(ParseLobbyEndpoints("192.0.2.10:32200;198.51.100.20:32200", endpoints));
   CHECK(endpoints.size() == 2);
-  CHECK(endpoints[0].first == "192.168.8.2" && endpoints[0].second == 32200);
-  CHECK(endpoints[1].first == "188.91.1.230" && endpoints[1].second == 32200);
+  CHECK(endpoints[0].first == "192.0.2.10" && endpoints[0].second == 32200);
+  CHECK(endpoints[1].first == "198.51.100.20" && endpoints[1].second == 32200);
   CHECK(ParseLobbyEndpoints("relay.local", endpoints));
   CHECK(endpoints.size() == 1 && endpoints[0].first == "relay.local");
   CHECK(endpoints[0].second == kDefaultLobbyPort);

@@ -256,6 +256,14 @@ if(Python3_Interpreter_FOUND)
     endif()
 endif()
 
+# Netplay relay defaults: public templates stay neutral, package-time injection is idempotent and
+# rejects malformed candidates. Pure Python, so it needs no build products.
+if(Python3_Interpreter_FOUND)
+    add_test(NAME netplay_lobby_defaults
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/netplay_lobby_defaults_test.py")
+endif()
+
 # Track 1 transfer-fit analyzer: pure-Python gate over the fit_transfer.py report
 # (numpy only). Same registration guard, so a machine without the analysis
 # dependency can still configure and build the game.

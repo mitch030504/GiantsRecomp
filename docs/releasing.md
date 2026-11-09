@@ -44,7 +44,10 @@ The source archive is fetched from the official Codeberg release with a verified
 For local use only, a self-contained archive can include the extracted `rom/` next to the game:
 
 ```sh
-# Stage the platform build, then hardlink your own extracted disc in:
+# Stage the platform build with YOUR relay defaults injected (never commit them), then hardlink
+# your own extracted disc in:
+GIANTSRECOMP_NETPLAY_LOBBY='lan-host:32200;wan-host:32200' just package-private-release
+mv dist/giantsrecomp-linux-amd64-release dist/GiantsRecomp-Linux-x64
 cp -al rom dist/GiantsRecomp-Linux-x64/rom
 cd dist
 7z a -t7z -mx=9 -m0=lzma2 -md=1024m -mfb=273 -ms=on -mmt=on \
@@ -54,8 +57,14 @@ cd dist
 The same layout works for `GiantsRecomp-Windows-x64`. The Linux staging should be stripped first
 (`strip --strip-unneeded` on the game and engine libraries) for a much smaller archive. **Never
 commit, upload, or share an archive that contains `rom/`**: the game data is copyrighted and the
-public releases ship none. The included `run.sh` starts the Linux build, and the active
-`giantsrecomp.toml` carries the relay defaults.
+public releases ship none. The included `run.sh` starts the Linux build.
+
+`package-private-release` requires `GIANTSRECOMP_NETPLAY_LOBBY` and passes it to
+`tools/apply_netplay_lobby.py`, which writes `netplay_relay = "auto"` and the candidate list into
+the staged `giantsrecomp.toml`. The public templates and both public packaging recipes ship an
+empty `netplay_lobby` when the variable is unset, so a public release never points at the owner's
+relay. `package-release` also injects the list when that variable is set, which is how the private
+staging is built.
 
 The owner's private Linux archive also places the FSR 4 provider (`libamd_fidelityfx_upscaler_vk.so`
 plus `fsr4-assets/`) next to the executable and enables `fsr4`/`present_effect = "fsr3"` in the

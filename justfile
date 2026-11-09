@@ -117,9 +117,26 @@ package-release: build-release
     cp out/build/{{ triple }}-release/giantsrecompiled{{ exe_suffix }} "$dist/" && \
     for lib in out/build/{{ triple }}-release/*.dll out/build/{{ triple }}-release/*.so out/build/{{ triple }}-release/*.dylib {{ sdk_lib_dir }}/*.so {{ sdk_lib_dir }}/*.dylib out/build/{{ triple }}-release/*_license.* out/build/{{ triple }}-release/*_source.tar.gz out/build/{{ triple }}-release/xess_third_party_programs.txt out/build/{{ triple }}-release/libnvidia-ngx-dlss.so.*; do [ -e "$lib" ] && cp "$lib" "$dist/" || true; done && \
     cp giantsrecomp.toml.example "$dist/giantsrecomp.toml" && \
+    if [ -n "${GIANTSRECOMP_NETPLAY_LOBBY:-}" ]; then \
+      python3 tools/apply_netplay_lobby.py "$dist/giantsrecomp.toml" "$GIANTSRECOMP_NETPLAY_LOBBY"; \
+    fi && \
     echo "Packaged to $dist/" && \
     echo "Copy that folder to the other machine, then add your own rom/ next to giantsrecompiled{{ exe_suffix }} there" && \
     echo "(rom/default.xex must exist) before running it."
+
+# Refuse a private package unless the owner's relay defaults were supplied through the environment.
+# They are injected into the staged toml by package-release and are intentionally absent from git.
+require-private-relay:
+    @test -n "${GIANTSRECOMP_NETPLAY_LOBBY:-}" || \
+      (echo "error: set GIANTSRECOMP_NETPLAY_LOBBY='lan-host:32200;wan-host:32200' (never commit it)" && exit 1)
+
+# Private, game-included staging for the owner's own machines. It keeps the owner's relay defaults
+# (injected from GIANTSRECOMP_NETPLAY_LOBBY), then you add rom/ and archive it as docs/releasing.md
+# describes. Never distribute the result: rom/ is copyrighted and the archive may carry private
+# FSR 4 / DLSS NR assets.
+package-private-release: require-private-relay package-release
+    @echo "Private staging is at dist/giantsrecomp-{{ triple }}-release/"
+    @echo "Add rom/ and archive it locally; see docs/releasing.md. Never distribute it."
 
 # Build the release binary, stage it alongside the installer's other inputs, and compile the
 # Windows installer with Inno Setup (ISCC.exe). Windows only -- see docs/releasing.md. Checks both
