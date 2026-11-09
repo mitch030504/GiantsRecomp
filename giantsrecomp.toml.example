@@ -31,7 +31,9 @@ anisotropic_override = 5                  # texture filtering: 5 = 16x, 3 = 4x, 
 # dlss5_amd_mode = 0                     # dev seam gate: 0 = off, 1/2 = substitute a precomputed
                                            # 1920x1080 image (needs dlss5_amd_image), 3 = live
                                            # per-frame NR at the composition seam (enables
-                                           # motion_guide automatically; see docs/upscaling.md)
+                                           # motion_guide automatically), 4 = live per-frame FSR 4
+                                           # pre-upscale there (needs fsr4=true and present_effect
+                                           # != fsr3); see docs/upscaling.md
 # fsr4 = false                           # Linux/AMD: FSR 4.1.2 via a user-built amd_fidelityfx_upscaler_vk.so
                                            # (from your own FidelityFX SDK v2.4.0 DLL; never shipped)
 # fsr4_data_path = ""                    # folder with that .so (and its fsr4-assets/); empty = next

@@ -230,6 +230,36 @@ settings UI. Expect the mode and the dev cvars
 (`dlss5_live_bypass`, `dlss5_live_no_depth`, `dlss5_live_no_substitute`, `dlss5_live_trace`) to
 change.
 
+## FSR 4 as the live pre-upscale (development, mode 4)
+
+The same composition seam can run FSR 4 instead of the NR network. Mode 4 feeds the provider the
+native 1000x600 scene colour, the engine guide motion (jitter removed, forward guest NDC) and the
+guest scene depth, and substitutes its 1920x1080 answer for the scene exactly as mode 3 substitutes
+the NR answer. The HUD draws after the seam and is never part of the upscale; the NR model is not
+loaded.
+
+```bash
+--dlss5_amd=true --dlss5_amd_mode=4 --fsr4=true \
+  --fsr4_data_path=/path/to/provider --motion_guide=true --present_effect=bilinear
+```
+
+Mode 4 needs the FSR 4 provider from the FSR 4 section above (`fsr4=true`, the `.so` and its
+`fsr4-assets/`), `dlss5_amd=true` for the device features, and the motion guide. It drives the
+guest projection jitter itself (the presenter's temporal upscaler normally does that), so run it
+with `present_effect != fsr3`: a presenter temporal dispatch would overwrite the jitter/active
+render size with the presenter's own input extent. The provider is created for renderSize
+1000x600 / upscaleSize 1920x1080; a frame whose scene resolve has a different extent (or no depth)
+keeps the guest view, so the seam never substitutes an input FSR did not validate.
+
+Measured on the RX 9070 XT at 1920x1080: the provider reports `FSR 4.1.2`, the seam applies every
+eligible frame with 0 skips, and the dispatch itself is **0.59 ms p50 / 0.60 ms p95** (GPU
+timestamps, 2509 samples; `dlss5_live_fsr4_timing`). The identity control (`dlss5_live_bypass`)
+copies the pre-upscaled scene and the dump's answer is byte-identical to its colour (same SHA-256),
+which is the mode-3 control's result too. On the soft title screen the seam's FSR 4 output trails
+the bilinear bypass by ~1.4 dB against a supersampled reference (39.2 vs 40.7 dB, one frame,
+unmasked), the same gap the presenter's masked title A/B measured; gameplay A/B with the input
+replay is still owed. This path is development-only and its cvars may change.
+
 ## Limits and next steps
 
 - The title screen is a soft scene. Repeat the A/B in gameplay, which has hard static edges, once
