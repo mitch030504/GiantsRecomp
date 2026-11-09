@@ -577,7 +577,11 @@ rex::X_RESULT FilterState(uint32_t user, X_INPUT_STATE* pad) {
     const uint32_t digest_interval = uint32_t(REXCVAR_GET(netplay_state_digest_interval));
     if (REXCVAR_GET(netplay_state_digest) && digest_interval > 0 && index >= start &&
         index % digest_interval == 0) {
-      local.hash = FigureStateDigest();
+      const uint64_t digest = FigureStateDigest();
+      local.hash = digest;
+      // Both peers compare this value in the input frame; the line makes a long rally auditable
+      // without waiting for a mismatch to pause the session.
+      REXLOG_INFO("Netplay: state digest {:016x} at read {}", digest, index);
     } else if (interval > 0 && index >= start && index % uint32_t(interval) == 0) {
       local.hash = MemoryHash();
     }
