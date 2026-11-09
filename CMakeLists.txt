@@ -258,14 +258,17 @@ endif()
 
 # Netplay relay defaults: public templates stay neutral, package-time injection is idempotent and
 # rejects malformed candidates. The digest comparison test covers the digest log reader. Both are
-# pure Python, so they need no build products.
+# pure Python and need no build products; the defaults test needs tomllib from Python 3.11.
 if(Python3_Interpreter_FOUND)
-    add_test(NAME netplay_lobby_defaults
-             COMMAND "${Python3_EXECUTABLE}"
-                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/netplay_lobby_defaults_test.py")
     add_test(NAME netplay_digest_compare
              COMMAND "${Python3_EXECUTABLE}"
                      "${CMAKE_CURRENT_SOURCE_DIR}/tests/netplay_digest_compare_test.py")
+    # The defaults test parses the templates with tomllib (Python 3.11+).
+    if(Python3_VERSION VERSION_GREATER_EQUAL 3.11)
+        add_test(NAME netplay_lobby_defaults
+                 COMMAND "${Python3_EXECUTABLE}"
+                         "${CMAKE_CURRENT_SOURCE_DIR}/tests/netplay_lobby_defaults_test.py")
+    endif()
 endif()
 
 # Track 1 transfer-fit analyzer: pure-Python gate over the fit_transfer.py report
