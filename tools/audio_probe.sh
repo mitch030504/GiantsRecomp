@@ -30,6 +30,7 @@
 #   INPUT_SCRIPT      optional bot script passed as --input_script
 #   MAXQFRAMES        default 8 (audio_maxqframes)
 #   PROBE_SO          optional LD_PRELOAD probe; preloaded only if the file exists
+#   AUDIO_TRACE       set to 1 to write <run>/audio-trace.csv from the SDK submission trace
 #   GAME              override the game binary
 #   AUDIO_PROBE_OUT   override the output root
 set -euo pipefail
@@ -43,6 +44,7 @@ modes_csv=${MODES:-wall,host,guest,net}
 maxqframes=${MAXQFRAMES:-8}
 input_script=${INPUT_SCRIPT:-}
 probe_so=${PROBE_SO:-}
+audio_trace=${AUDIO_TRACE:-}
 game=${GAME:-$repo/out/build/linux-amd64-release/giantsrecompiled}
 out_root=${AUDIO_PROBE_OUT:-$repo/out/tmp/audio-probe}
 do_analyze=0
@@ -68,8 +70,8 @@ Options:
   -h, --help           this text
 
 Environment: SECONDS_PER_RUN, SAMPLE_FRAMES, MODES, INPUT_SCRIPT, MAXQFRAMES, PROBE_SO,
-GAME, AUDIO_PROBE_OUT. The harness never builds and never changes the default sink, its mute,
-or its volume. See tools/audio_probe.md.
+AUDIO_TRACE, GAME, AUDIO_PROBE_OUT. The harness never builds and never changes the default
+sink, its mute, or its volume. See tools/audio_probe.md.
 EOF
 }
 
@@ -576,6 +578,9 @@ run_one() {
   if [[ -n $probe_so ]]; then
     csv="$dir/probe.csv"
     env_args+=("LD_PRELOAD=$probe_so" "GIANTS_AUDIO_PROBE=$csv")
+  fi
+  if [[ -n $audio_trace ]]; then
+    env_args+=("GIANTS_AUDIO_TRACE=$dir/audio-trace.csv")
   fi
 
   local command=(gamescope --backend headless -W 1280 -H 720 -w 1280 -h 720 --

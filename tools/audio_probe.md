@@ -228,7 +228,6 @@ Details:
   catches a capture that is silent because audio never started.
 
 ### Exact repeats and the 48 kHz stream probe
-
 The null-sink capture is what reached the device, but the device can be a different rate from
 the game's 48 kHz stream. On the 2026-11-09 PipeWire/SDL3 setup the game opened the real device
 at 44.1 kHz even with the private sink as the server default, so PipeWire resampled the capture
@@ -247,6 +246,25 @@ a CSV. Copy it to `<dir>/capture.f32`, add a small `metadata.json` with `mode`,
 `sample_frames`, `rate: 48000` and `requested_seconds`, and the analyzer reads it like any
 capture. This is the bit-exact evidence for the repeat check; the null-sink capture remains the
 evidence for zeros and the device-side click comparison.
+
+### Submission trace (dev)
+
+`AUDIO_TRACE=1 tools/audio_probe.sh ...` sets `GIANTS_AUDIO_TRACE=<run>/audio-trace.csv` and
+writes one row per stage: `xa` is the guest render callback's `XAudioSubmitRenderDriverFrame`
+content, `submit` is `SDLAudioDriver::SubmitFrame` (the copied 6-channel mix), and `sdl` is each
+`SDL_PutAudioStreamData` of the 2-channel stream. Every row carries a call sequence, the guest
+pointer, queued/available counts, a content hash, and the first/last sample. Compare them to
+localize duplication:
+
+* identical `xa`/`submit` hashes at a lag -> the duplicate is in the content the guest render
+  callback produces, upstream of the SDK's queue;
+* unique `xa`/`submit` hashes but identical `sdl` hashes -> the queue/device path is replaying;
+* `sdl` hashes differ from the probe's bytes -> the probe or the stream conversion is at fault.
+
+The 2026-11-09 investigation used this to show that a 1024-frame block repeats in `xa`, `submit`
+and `sdl` with a constant guest pointer, so the duplication is upstream of `AudioSystem` and is
+not caused by SDL or the driver queue. Queue depth 4/8/16, device quantum 256/1024, and
+block-boundary credit releases were tested and did not change the rate.
 
 The table prints one row per run with `zero%`, `rep%`, dominant `lag`, `dev%` (device-lag
 repeat fraction), `clicks`, `clk/s` (isolated events per second), `pk z`, and a verdict.
