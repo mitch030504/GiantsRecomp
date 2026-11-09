@@ -3,6 +3,8 @@
 
 Run directly or through ctest (`netplay_lobby_defaults`). Uses only the standard library.
 """
+import ipaddress
+import re
 import subprocess
 import sys
 import tempfile
@@ -12,11 +14,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = [ROOT / "giantsrecomp.toml.example", ROOT / "installer/settings_template.toml"]
 INJECTOR = ROOT / "tools/apply_netplay_lobby.py"
-# The owner's private relay addresses and LAN subnet must not appear in public source.
-PRIVATE_MARKERS = ("188.91.1.230", "192.168.8.2")
+# Documentation and test fixtures may use the RFC 5737 ranges; anything else public is a leak.
+DOCUMENTATION_NETS = tuple(ipaddress.ip_network(net) for net in
+                           ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24"))
 PUBLIC_FILES = TEMPLATES + [ROOT / "docs/netplay.md", ROOT / "tests/netplay_lobby_test.cpp"]
 
 failures = 0
+
+
+def ipv4_addresses(text):
+    """Yield IPv4 literals that are neither private/loopback nor documentation addresses."""
+    for match in re.finditer(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", text):
+        try:
+            address = ipaddress.ip_address(match.group())
+        except ValueError:
+            continue
+        if address.is_private or address.is_loopback or address.is_link_local \
+                or address.is_unspecified:
+            continue
+        if any(address in network for network in DOCUMENTATION_NETS):
+            continue
+        yield str(address)
 
 
 def check(condition, message):
@@ -65,13 +83,13 @@ def main():
         document = tomllib.loads(text)
         check(lookup(document, "netplay_lobby", "") == "",
               f"{template.relative_to(ROOT)} has an empty netplay_lobby")
-        for marker in PRIVATE_MARKERS:
-            check(marker not in text, f"{template.relative_to(ROOT)} does not contain {marker}")
+        check(not list(ipv4_addresses(text)),
+              f"{template.relative_to(ROOT)} contains no public relay literal")
 
     for path in PUBLIC_FILES[2:]:
         text = path.read_text(encoding="utf-8")
-        for marker in PRIVATE_MARKERS:
-            check(marker not in text, f"{path.relative_to(ROOT)} does not contain {marker}")
+        check(not list(ipv4_addresses(text)),
+              f"{path.relative_to(ROOT)} contains no public relay literal")
 
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
