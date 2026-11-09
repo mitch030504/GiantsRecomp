@@ -133,6 +133,8 @@ def main():
                        str(root / "out/build/linux-amd64-release/giantsrecompiled"),
                        "--resolution=1280x720", "--resolution_scale=1",
                        "--frame_rate_limit=60", "--netplay_timeout_seconds=30",
+                       "--audio_mute=true",
+                       "--netplay_state_digest=true", "--netplay_state_digest_interval=300",
                        f"--user_data_root={folder / 'saves'}",
                        f"--log_file={folder / 'game.log'}",
                        f"--input_record={folder / 'input.bin'}",
