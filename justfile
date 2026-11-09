@@ -187,6 +187,7 @@ test-release: build-release
 # directly for a quick check without a build.
 test-analysis:
     python3 tests/motion_guide_analysis_test.py
+    python3 tests/audio_probe_analysis_test.py
 
 # --- Housekeeping --------------------------------------------------------------
 

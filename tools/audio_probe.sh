@@ -3,8 +3,9 @@
 #
 # Records what the game actually sends to an audio device while the guest clock is free-running
 # (wall mode) or frame-locked at 60/60 with host-paced or guest-paced audio. The analysis in
-# tools/audio_probe_analyze.py then looks for exact repeats, zero runs and clicks in the raw
-# capture. See tools/audio_probe.md for the method, the buffer sweep and the ambiguities.
+# tools/audio_probe_analyze.py then looks for exact repeats, zero runs and isolated
+# discontinuities (clicks/splices) in the raw capture. See tools/audio_probe.md for the method,
+# the buffer sweep and the ambiguities.
 #
 # Usage (from anywhere; paths are resolved against the repo root):
 #   tools/audio_probe.sh [--seconds=N] [--frames=LIST] [--modes=LIST]
@@ -447,7 +448,7 @@ probe_path = Path(env("PROBE_CSV")) if env("PROBE_CSV") else None
 if probe_path and probe_path.is_file():
     try:
         rows = list(csv.DictReader(probe_path.open(newline="")))
-    except OSError:
+    except (OSError, UnicodeDecodeError, csv.Error):
         rows = []
 
     def number(row, name):
