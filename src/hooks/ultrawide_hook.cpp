@@ -25,9 +25,15 @@
 #include <rex/cvar.h>
 #include <rex/graphics/video_mode_util.h>
 #include <rex/hook.h>
+#include <rex/logging.h>
 #include <rex/memory/utils.h>
 #include <rex/ui/temporal_jitter.h>
 #include "netplay/netplay.h"
+
+#include <cmath>
+#include <cstdint>
+#include <cstdlib>
+#include <string>
 
 REXCVAR_DECLARE(std::string, resolution);
 
@@ -88,6 +94,18 @@ REXCVAR_DEFINE_INT32(temporal_jitter_flip, 0, "Graphics",
                      "offset, so anything but 0 should look worse.")
     .range(0, 3);
 
+REXCVAR_DEFINE_INT32(projection_log_frame, -1, "Graphics",
+                     "Development: log every BuildPerspectiveProjectionMatrix call for the two "
+                     "guest frames starting at this frame, with its call-site LR and frustum "
+                     "bounds, to identify which call is the main scene camera. -1 turns it off.")
+    .range(-1, 1000000000);
+
+REXCVAR_DEFINE_STRING(projection_camera_lr, "0x82196B30", "Graphics",
+                      "Development: hex call-site LR of the perspective projection that is the "
+                      "main scene camera. The near/far/vertical FOV from that call are handed to "
+                      "temporal upscalers (rex/ui/temporal_jitter.h); empty disables the capture.")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
 REX_EXTERN(__imp__BuildPerspectiveProjectionMatrix);
 
 REX_HOOK_RAW(BuildPerspectiveProjectionMatrix) {
@@ -137,6 +155,46 @@ REX_HOOK_RAW(BuildPerspectiveProjectionMatrix) {
     ctx.f2.f64 += dx;
     ctx.f3.f64 += dy;
     ctx.f4.f64 += dy;
+  }
+
+  // Guest camera capture for temporal upscalers (rex/ui/temporal_jitter.h). Only the call site
+  // that builds the scene camera is captured; the frame's other perspective builds are shadow or
+  // overlay cameras with their own frusta. The vertical span is unaffected by the horizontal
+  // ultrawide widening above and by the sub-pixel jitter (both move top and bottom together).
+  // The main camera passes bottom above top (a Y-down projection), so the span is the absolute
+  // difference; the sign only flips the image and is not part of FSR's vertical FOV.
+  const double frustum_height = std::abs(ctx.f4.f64 - ctx.f3.f64);
+  const double near_plane = ctx.f5.f64;
+  double fov_y = 0.0;
+  if (near_plane > 0.0 && frustum_height > 0.0) {
+    fov_y = 2.0 * std::atan(frustum_height * 0.5 / near_plane);
+  }
+  const uint64_t guest_frame = rex::ui::temporal::GuestSwapCount();
+  const int32_t log_frame = REXCVAR_GET(projection_log_frame);
+  if (log_frame >= 0 && guest_frame >= uint64_t(log_frame) &&
+      guest_frame < uint64_t(log_frame) + 2) {
+    REXLOG_INFO("projection frame={} lr=0x{:08X} l={:.5f} r={:.5f} b={:.5f} t={:.5f} "
+                "near={:.5f} far={:.5f} fov_y={:.5f} aspect={:.4f}",
+                guest_frame, uint32_t(ctx.lr), ctx.f1.f64, ctx.f2.f64, ctx.f3.f64, ctx.f4.f64,
+                ctx.f5.f64, ctx.f6.f64, fov_y,
+                frustum_height > 0.0 ? (ctx.f2.f64 - ctx.f1.f64) / frustum_height : 0.0);
+  }
+  // Parsed once per cvar value: this hook runs for every perspective draw in the frame.
+  static std::string cached_camera_lr_text;
+  static uint32_t cached_camera_lr = 0;
+  static bool cached_camera_lr_valid = false;
+  const std::string& camera_lr_text = REXCVAR_GET(projection_camera_lr);
+  if (camera_lr_text != cached_camera_lr_text) {
+    cached_camera_lr_text = camera_lr_text;
+    char* end = nullptr;
+    const unsigned long parsed = std::strtoul(camera_lr_text.c_str(), &end, 0);
+    cached_camera_lr_valid =
+        !camera_lr_text.empty() && end != nullptr && *end == '\0' && parsed <= 0xFFFFFFFFul;
+    cached_camera_lr = uint32_t(parsed);
+  }
+  if (cached_camera_lr_valid && uint32_t(ctx.lr) == cached_camera_lr && fov_y > 0.0 &&
+      ctx.f6.f64 > near_plane) {
+    rex::ui::temporal::SetCameraProjection(float(near_plane), float(ctx.f6.f64), float(fov_y));
   }
 
   __imp__BuildPerspectiveProjectionMatrix(ctx, base);

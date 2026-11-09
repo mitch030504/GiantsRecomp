@@ -254,16 +254,53 @@ keeps the guest view, so the seam never substitutes an input FSR did not validat
 Measured on the RX 9070 XT at 1920x1080: the provider reports `FSR 4.1.2`, the seam applies every
 eligible frame with 0 skips, and the dispatch itself is **0.59 ms p50 / 0.60 ms p95** (GPU
 timestamps, 2509 samples; `dlss5_live_fsr4_timing`). The identity control (`dlss5_live_bypass`)
-copies the pre-upscaled scene and the dump's answer is byte-identical to its colour (same SHA-256),
-which is the mode-3 control's result too. On the soft title screen the seam's FSR 4 output trails
-the bilinear bypass by ~1.4 dB against a supersampled reference (39.2 vs 40.7 dB, one frame,
-unmasked), the same gap the presenter's masked title A/B measured; gameplay A/B with the input
-replay is still owed. This path is development-only and its cvars may change.
+copies the pre-upscaled scene; the dump's answer and baseline are then byte-identical (same
+SHA-256), which is the mode-3 control's answer == colour result too.
+
+**Camera parameters.** The game builds its scene projection at `0x82196B30` (the single
+`BuildPerspectiveProjectionMatrix` call with a ~36° vertical FOV). Measured on a live Chapter 1
+frame: near **1.0**, far **20000.0**, vertical FOV **0.6280 rad (35.98°)**. The frustum is passed
+with bottom above top (a Y-down projection), so the vertical span is `|top - bottom|`. The other
+perspective call site (`0x822D0324`, eight shadow/projection cameras per frame) uses near 0.2 with
+far 609.6/1e6 at 45.7°/81.5° and is not the scene camera. Mode 4 passes the captured values as
+FSR's `cameraNear`/`cameraFar`/`cameraFovAngleVertical`; the previous placeholders were
+0.1/1000/60°. `projection_log_frame=<n>` logs every perspective build for two guest frames
+(call-site LR and frustum) and `projection_camera_lr` overrides which call site is captured
+(default `0x82196B30`, the scene camera).
+
+**Gameplay A/B.** `dlss5_live_dump` also writes `-baseline.rgba`: the same frame's mode-3
+pre-upscale (bilinear) answer, produced from the same scene by the same prep shader. One dump is
+therefore a complete same-frame A/B; the baseline matches a host bilinear upsample of the dumped
+1000x600 colour to within one code (56.7–56.8 dB). Four independent Chapter 1 runs (1920x1080,
+1000x600 scene; the HUD is drawn after the seam, so both images are scene-only):
+
+| Guest frame | PSNR vs bilinear | Edge RMS | Gradient energy vs bilinear |
+| --- | --- | --- | --- |
+| 7399 | 40.09 dB | 7.82 | 0.970 |
+| 7599 | 34.93 dB | 14.46 | 0.988 |
+| 8199 | 38.15 dB | 11.84 | 0.991 |
+| 8799 | 36.20 dB | 13.07 | 0.957 |
+| mean | **37.34 ± 1.13 dB** | **11.77 ± 1.42** | |
+
+On gameplay, FSR 4 at 1000x600 -> 1920 is 35–40 dB from the bilinear bypass and has 1–4% *less*
+gradient energy: it does not add detail over bilinear on this content, it is slightly smoother.
+The reference is the bypass at the same extent, not a supersampled ground truth: a second process
+at `resolution_scale=2` cannot be aligned to the same gameplay frame (loading stalls move where
+Chapter 1 starts, and `clock_frame_locked_waits=true`, which fixes loading, burns the scripted
+title presses), so the same-frame baseline is the honest comparison. The title-screen numbers
+against a 4K reference above remain the only supersampled comparison.
+
+Input identity: at the deterministic title frame 929 the FSR run's baseline is byte-identical to a
+bypass run's answer, and the two runs' dumped colour/motion/depth SHA-256 match. During gameplay
+the pair shares one guest frame by construction (one dump, one prep dispatch), which is the primary
+identity evidence: the colour, motion and depth FSR consumes are the exact inputs the baseline
+bilinear answer was made from. This path is development-only and its cvars may change.
 
 ## Limits and next steps
 
-- The title screen is a soft scene. Repeat the A/B in gameplay, which has hard static edges, once
-  input replay can get there.
+- The title screen is a soft scene. Its A/B has a 4K reference; gameplay now has a same-frame
+  bilinear reference (mode 4 above), but a native supersampled gameplay reference still needs a
+  second process that can be held at the same guest frame (loading timing currently prevents it).
 - Motion vectors from block matching can't separate moving objects from the background well, so the
   shipping upscaler still uses them. Live NR (`dlss5_amd_mode=3`) uses the engine guide, with the
   guest depth, instead: static and panning windows pass its gate, and it is still development-only
